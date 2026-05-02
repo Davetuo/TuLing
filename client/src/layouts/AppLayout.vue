@@ -24,7 +24,7 @@ async function handleLogout() {
       </div>
     </header>
     <main class="app-main">
-      <router-view />
+      <slot />
     </main>
   </div>
 </template>
@@ -70,5 +70,11 @@ async function handleLogout() {
 
 .user-info {
   color: #606266;
+}
+
+@media (max-width: 480px) {
+  .subtitle {
+    display: none;
+  }
 }
 </style>

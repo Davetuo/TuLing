@@ -41,3 +41,6 @@ docs/
 # ── 工具框架产出 ──
 openqa/
 openspec/
+
+# ── OpenGuard ──
+openguard/

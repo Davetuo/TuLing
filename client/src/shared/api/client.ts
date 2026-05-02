@@ -14,10 +14,14 @@ apiClient.interceptors.response.use(
     const message = error.response?.data?.message || '网络异常，请稍后重试'
 
     if (status === 401) {
-      ElMessage.error(message)
       const { useAuthStore } = await import('@/stores/auth')
       useAuthStore().logoutLocal()
-      window.location.href = '/login'
+      // 不在登录/注册页时才跳转，避免循环重定向
+      const authPaths = ['/login', '/register']
+      if (!authPaths.includes(window.location.pathname)) {
+        ElMessage.error(message)
+        window.location.href = '/login'
+      }
     } else {
       ElMessage.error(message)
     }

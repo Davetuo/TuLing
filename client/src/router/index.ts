@@ -26,6 +26,30 @@ const router = createRouter({
       component: () => import('@/pages/home/HomePage.vue'),
       meta: { requiresAuth: true },
     },
+    {
+      path: '/chat',
+      name: 'Chat',
+      component: () => import('@/pages/chat/ChatPage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/spots',
+      name: 'Spots',
+      component: () => import('@/pages/spots/SpotListPage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/trips',
+      name: 'Trips',
+      component: () => import('@/pages/trips/TripListPage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/albums',
+      name: 'Albums',
+      component: () => import('@/pages/albums/AlbumListPage.vue'),
+      meta: { requiresAuth: true },
+    },
   ],
 })
 
