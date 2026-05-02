@@ -1,0 +1,45 @@
+import {
+  ExceptionFilter,
+  Catch,
+  ArgumentsHost,
+  HttpException,
+  HttpStatus,
+  Logger,
+} from '@nestjs/common';
+import { FastifyReply, FastifyRequest } from 'fastify';
+
+@Catch()
+export class GlobalExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(GlobalExceptionFilter.name);
+
+  catch(exception: unknown, host: ArgumentsHost) {
+    const ctx = host.switchToHttp();
+    const reply = ctx.getResponse<FastifyReply>();
+    const request = ctx.getRequest<FastifyRequest>();
+
+    let status = HttpStatus.INTERNAL_SERVER_ERROR;
+    let message = '服务器内部错误';
+
+    if (exception instanceof HttpException) {
+      status = exception.getStatus();
+      const response = exception.getResponse();
+      message =
+        typeof response === 'string'
+          ? response
+          : (response as Record<string, unknown>).message?.toString() || message;
+    } else if (exception instanceof Error) {
+      this.logger.error(
+        `Unhandled error: ${exception.message}`,
+        exception.stack,
+        `${request.method} ${request.url}`,
+      );
+    }
+
+    reply.status(status).send({
+      code: status,
+      message: Array.isArray(message) ? message.join('; ') : message,
+      timestamp: new Date().toISOString(),
+      path: request.url,
+    });
+  }
+}

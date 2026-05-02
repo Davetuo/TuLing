@@ -1,0 +1,43 @@
+# ── 依赖 ──
+node_modules/
+
+# ── 构建产物 ──
+dist/
+*.tsbuildinfo
+
+# ── 环境变量 ──
+.env
+.env.local
+
+# ── 日志 ──
+*.log
+logs/
+npm-debug.log*
+
+# ── IDE & 编辑器 ──
+.idea/
+*.swp
+*.swo
+*~
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+
+# ── AI 工具 ──
+.claude/
+
+# ── 测试 ──
+coverage/
+test-results/
+playwright-report/
+
+# ── Docker ──
+docker-compose.override.yml
+
+# ── 文档 ──
+docs/
+
+# ── 工具框架产出 ──
+openqa/
+openspec/
