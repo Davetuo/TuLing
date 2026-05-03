@@ -42,5 +42,8 @@ docs/
 openqa/
 openspec/
 
+# ── 脚本运行时 ──
+scripts/.pids/
+
 # ── OpenGuard ──
 openguard/

@@ -50,14 +50,45 @@ TuLing/
 - Node.js >= 20
 - Docker Desktop
 
-### 1. 启动基础设施
+### 一键启动（推荐）
 
+**macOS / Linux:**
+```bash
+bash scripts/setup.sh   # 首次：安装依赖 + 初始化环境
+bash scripts/start.sh   # 启动所有服务
+```
+
+**Windows PowerShell:**
+```powershell
+.\scripts\setup.ps1     # 首次：安装依赖 + 初始化环境
+.\scripts\start.ps1     # 启动所有服务
+```
+
+启动后：
+- 前端页面: http://localhost:5173
+- 后端 API:  http://localhost:3000
+- 按 `Ctrl+C` 停止服务
+
+### 脚本说明
+
+| 脚本 | macOS / Linux | Windows (PowerShell) | Windows (CMD) | 用途 |
+|------|---------------|---------------------|----------------|------|
+| 一键部署 | `bash scripts/setup.sh` | `.\scripts\setup.ps1` | `scripts\setup.bat` | 安装依赖、初始化 .env、迁移数据库 |
+| 一键启动 | `bash scripts/start.sh` | `.\scripts\start.ps1` | `scripts\start.bat` | 拉起 Docker + 后端 + 前端 |
+| 一键停止 | `bash scripts/stop.sh` | `.\scripts\stop.ps1` | `scripts\stop.bat` | 停止服务，保留所有数据 |
+| 一键清理 | `bash scripts/cleanup.sh` | `.\scripts\cleanup.ps1` | `scripts\cleanup.bat` | 停止服务 + 删除数据和产物（不可逆） |
+
+### 手动启动（备选）
+
+<details>
+<summary>展开手动步骤</summary>
+
+#### 1. 启动基础设施
 ```bash
 docker compose up -d
 ```
 
-### 2. 初始化数据库
-
+#### 2. 初始化数据库
 ```bash
 cd server
 cp .env.example .env
@@ -65,22 +96,22 @@ npm install
 npx prisma migrate dev
 ```
 
-### 3. 启动后端
-
+#### 3. 启动后端
 ```bash
 cd server
 npm run start:dev
 # → http://localhost:3000
 ```
 
-### 4. 启动前端
-
+#### 4. 启动前端
 ```bash
 cd client
 npm install
 npm run dev
 # → http://localhost:5173
 ```
+
+</details>
 
 ## API 接口
 
