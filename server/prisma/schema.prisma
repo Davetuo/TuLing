@@ -18,7 +18,8 @@ model User {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  authTokens AuthToken[]
+  authTokens    AuthToken[]
+  chatSessions  ChatSession[]
 
   @@map("users")
 }
@@ -36,4 +37,33 @@ model AuthToken {
   @@index([userId])
   @@index([refreshTokenHash])
   @@map("auth_tokens")
+}
+
+model ChatSession {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  title     String   @default("") @db.VarChar(100)
+  summary   Json?    @map("summary") @db.JsonB
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid()) @db.Uuid
+  sessionId String   @map("session_id") @db.Uuid
+  role      String   @db.VarChar(20)
+  content   String   @db.Text
+  metadata  Json?    @map("metadata") @db.JsonB
+  createdAt DateTime @default(now()) @map("created_at")
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("chat_messages")
 }

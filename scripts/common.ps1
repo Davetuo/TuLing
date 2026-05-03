@@ -54,10 +54,22 @@ function Wait-Port {
     param([int]$Port, [int]$Timeout = 30)
     Write-Info "等待端口 $Port 就绪..."
     $elapsed = 0
+    $retried = $false
     while (-not (Test-Port $Port)) {
-        Start-Sleep -Seconds 1
+        Start-Sleep -Milliseconds 500
         $elapsed++
-        if ($elapsed -ge $Timeout) {
+        if ($elapsed -ge ($Timeout * 2)) {
+            if (-not $retried -and (Get-Command docker -ErrorAction SilentlyContinue)) {
+                $containers = docker compose ps --format "{{.Service}}" 2>$null
+                if ($containers) {
+                    Write-Warn "端口 $Port 等待超时，尝试重启 Docker 容器..."
+                    docker compose restart 2>$null | Out-Null
+                    $retried = $true
+                    $elapsed = 0
+                    Start-Sleep -Seconds 2
+                    continue
+                }
+            }
             Write-Error-Exit "端口 $Port 等待超时 ($Timeout 秒)"
         }
     }
@@ -78,7 +90,8 @@ function Stop-AppProcesses {
         $spid = Get-Content $serverPidFile
         $proc = Get-Process -Id $spid -ErrorAction SilentlyContinue
         if ($proc) {
-            Stop-Process -Id $spid -Force -ErrorAction SilentlyContinue
+            # Use taskkill /T to kill the entire process tree (nest --watch spawns children)
+            taskkill /PID $spid /T /F >$null 2>&1
             Write-Info "后端进程已停止 (PID: $spid)"
             $stopped = $true
         }
@@ -90,18 +103,18 @@ function Stop-AppProcesses {
         $cpid = Get-Content $clientPidFile
         $proc = Get-Process -Id $cpid -ErrorAction SilentlyContinue
         if ($proc) {
-            Stop-Process -Id $cpid -Force -ErrorAction SilentlyContinue
+            taskkill /PID $cpid /T /F >$null 2>&1
             Write-Info "前端进程已停止 (PID: $cpid)"
             $stopped = $true
         }
         Remove-Item $clientPidFile -Force -ErrorAction SilentlyContinue
     }
 
-    # Fallback: kill by port
+    # Fallback: kill by port (with /T to kill entire process tree)
     foreach ($port in @(3000, 5173)) {
         $conn = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($conn) {
-            Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue
+            taskkill /PID $conn.OwningProcess /T /F >$null 2>&1
             $stopped = $true
         }
     }
@@ -109,7 +122,7 @@ function Stop-AppProcesses {
     # Last-resort fallback: stop any remaining node processes running nest/vite
     Get-Process -Name "node" -ErrorAction SilentlyContinue | ForEach-Object {
         if ($_.CommandLine -match "nest start|vite") {
-            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+            taskkill /PID $_.Id /T /F >$null 2>&1
             $stopped = $true
         }
     }

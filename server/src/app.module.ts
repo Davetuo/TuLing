@@ -6,6 +6,8 @@ import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
+import { ProviderModule } from './provider/provider.module';
+import { ChatModule } from './chat/chat.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 
 @Module({
@@ -22,6 +24,8 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
     RedisModule,
     AuthModule,
     UserModule,
+    ProviderModule,
+    ChatModule,
   ],
   providers: [
     {

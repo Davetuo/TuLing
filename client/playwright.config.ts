@@ -1,9 +1,10 @@
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
-  testDir: '../openqa/changes/chg-20260502-测试注册与登录模块的完整流程/test_scripts',
-  timeout: 30000,
+  testDir: './e2e',
+  timeout: 60000,
   retries: 0,
+  workers: 2,
   use: {
     baseURL: 'http://localhost:5173',
     headless: true,

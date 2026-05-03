@@ -39,7 +39,7 @@ echo.
 REM ===== Install server dependencies =====
 echo [INFO] Installing server dependencies...
 cd /d "%PROJECT_ROOT%\server"
-call npm install
+call npm install --no-audit --no-fund
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Server dependency installation failed
     exit /b 1
@@ -50,7 +50,7 @@ echo.
 REM ===== Install client dependencies =====
 echo [INFO] Installing client dependencies...
 cd /d "%PROJECT_ROOT%\client"
-call npm install
+call npm install --no-audit --no-fund
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Client dependency installation failed
     exit /b 1
@@ -80,9 +80,26 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo [INFO] Waiting for PostgreSQL (port 5432)...
+set /a _wait=0
 :wait_pg_setup
 netstat -ano 2>nul | findstr ":5432" >nul
-if %ERRORLEVEL% NEQ 0 goto wait_pg_setup
+if %ERRORLEVEL% EQU 0 goto pg_ready
+set /a _wait+=1
+if %_wait% GEQ 30 (
+    if not defined _retried (
+        echo [WARN] Port 5432 timeout, restarting Docker containers...
+        docker compose restart >nul 2>nul
+        set _retried=1
+        set /a _wait=0
+        timeout /t 2 /nobreak >nul 2>nul
+        goto wait_pg_setup
+    )
+    echo [ERROR] Port 5432 wait timeout - 30 seconds
+    exit /b 1
+)
+timeout /t 1 /nobreak >nul 2>nul
+goto wait_pg_setup
+:pg_ready
 echo [OK] PostgreSQL ready
 echo.
 
@@ -102,7 +119,7 @@ if !RETRY! GEQ 3 (
     exit /b 1
 )
 echo [WARN] Prisma generate failed, retrying ^(!RETRY!/3^)...
-choice /t 3 /d y >nul
+timeout /t 2 /nobreak >nul 2>nul
 goto retry_generate
 
 :generate_ok

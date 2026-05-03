@@ -34,7 +34,7 @@ foreach ($port in @(3000, 5173)) {
     $conn = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($conn) {
         Write-Warn "端口 $port 已被占用 (PID: $($conn.OwningProcess))，正在终止..."
-        Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue
+        taskkill /PID $conn.OwningProcess /T /F >$null 2>&1
         Start-Sleep -Seconds 1
     }
 }

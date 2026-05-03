@@ -57,12 +57,21 @@ wait_for_port() {
   local port=${1:-}
   local timeout=${2:-30}
   local elapsed=0
+  local retried=0
   info "等待端口 $port 就绪..."
   while ! check_port "$port"; do
-    sleep 1
+    sleep 0.5
     elapsed=$((elapsed + 1))
-    if [ "$elapsed" -ge "$timeout" ]; then
-      error "端口 $port 等待超时 ($timeout 秒)"
+    if [ "$elapsed" -ge "$((timeout * 2))" ]; then
+      if [ "$retried" -eq 0 ] && command -v docker &> /dev/null && docker compose ps --format "{{.Service}}" 2>/dev/null | grep -q .; then
+        warn "端口 $port 等待超时，尝试重启 Docker 容器..."
+        docker compose restart 2>/dev/null || true
+        retried=1
+        elapsed=0
+        sleep 2
+      else
+        error "端口 $port 等待超时 ($timeout 秒)"
+      fi
     fi
   done
   success "端口 $port 已就绪"
@@ -84,8 +93,8 @@ stop_app_processes() {
     local spid
     spid=$(cat "$PIDS_DIR/server.pid")
     if kill -0 "$spid" 2>/dev/null; then
-      kill "$spid" 2>/dev/null || true
-      sleep 1
+      # Kill the entire process group to catch nest --watch and its children
+      kill -- -"$spid" 2>/dev/null || kill -9 -- -"$spid" 2>/dev/null || kill -9 "$spid" 2>/dev/null || true
       info "后端进程已停止 (PID: $spid)"
       stopped=1
     fi
@@ -95,14 +104,13 @@ stop_app_processes() {
     local cpid
     cpid=$(cat "$PIDS_DIR/client.pid")
     if kill -0 "$cpid" 2>/dev/null; then
-      kill "$cpid" 2>/dev/null || true
-      sleep 1
+      kill -- -"$cpid" 2>/dev/null || kill -9 -- -"$cpid" 2>/dev/null || kill -9 "$cpid" 2>/dev/null || true
       info "前端进程已停止 (PID: $cpid)"
       stopped=1
     fi
     rm -f "$PIDS_DIR/client.pid"
   fi
-  # Fallback: kill by port
+  # Fallback: kill by port (with process group)
   for port in 3000 5173; do
     local ppid
     ppid=$(lsof -ti:"$port" 2>/dev/null || true)

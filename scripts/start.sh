@@ -50,7 +50,8 @@ done
 # ── 启动后端 ──
 info "启动后端服务 (NestJS) 端口 3000..."
 cd "$PROJECT_ROOT/server"
-npm run start:dev &
+# Run in a new process group so we can kill the entire tree on stop
+setsid npm run start:dev &
 SERVER_PID=$!
 echo "$SERVER_PID" > "$PIDS_DIR/server.pid"
 success "后端已启动 (PID: $SERVER_PID)"
@@ -58,7 +59,7 @@ success "后端已启动 (PID: $SERVER_PID)"
 # ── 启动前端 ──
 info "启动前端服务 (Vite) 端口 5173..."
 cd "$PROJECT_ROOT/client"
-npm run dev &
+setsid npm run dev &
 CLIENT_PID=$!
 echo "$CLIENT_PID" > "$PIDS_DIR/client.pid"
 success "前端已启动 (PID: $CLIENT_PID)"
