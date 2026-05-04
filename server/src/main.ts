@@ -6,6 +6,24 @@ import fastifyCookie from '@fastify/cookie';
 import fastifyCors from '@fastify/cors';
 import { AppModule } from './app.module';
 
+async function detectPublicIp(port: string | number): Promise<void> {
+  const services = ['https://ifconfig.me/ip', 'https://api.ipify.org', 'https://ip.sb'];
+  for (const url of services) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      const resp = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeout);
+      const ip = (await resp.text()).trim();
+      if (ip) {
+        Logger.warn(`Public access (requires port forwarding): http://${ip}:${port}`, 'Bootstrap');
+        return;
+      }
+    } catch { /* try next service */ }
+  }
+  Logger.debug('Could not detect public IP', 'Bootstrap');
+}
+
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
@@ -59,11 +77,13 @@ async function bootstrap() {
 
     await app.listen(port, '0.0.0.0');
     Logger.log(`Server running on http://localhost:${port}`, 'Bootstrap');
+    await detectPublicIp(port);
     return;
   }
 
   await app.listen(port, '0.0.0.0');
   Logger.log(`Server running on http://localhost:${port}`, 'Bootstrap');
+  await detectPublicIp(port);
 }
 
 bootstrap();

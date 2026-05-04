@@ -92,6 +92,13 @@ echo [OK] =========================================
 echo.
 echo   Local:   http://localhost:3000
 echo   Network: http://%__lanip%:3000
+call :get_public_ip
+if defined __public_ip (
+    echo   Public:  http://%__public_ip%:3000
+    echo   [WARN] Please configure port forwarding on router (3000 -^> %__lanip%:3000)
+    echo.
+)
+
 echo.
 goto :end
 :no_ip
@@ -101,6 +108,12 @@ echo [OK]   Production server started
 echo [OK] =========================================
 echo.
 echo   Local:   http://localhost:3000
+call :get_public_ip
+if defined __public_ip (
+    echo   Public:  http://%__public_ip%:3000
+    echo.
+)
+
 echo.
 :end
 echo Run scripts\stop.bat to stop all services

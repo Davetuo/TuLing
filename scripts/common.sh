@@ -87,6 +87,18 @@ confirm() {
   esac
 }
 
+get_public_ip() {
+  local ip=""
+  ip=$(curl -s --connect-timeout 3 https://ifconfig.me/ip 2>/dev/null) || true
+  if [ -z "$ip" ]; then
+    ip=$(curl -s --connect-timeout 3 https://api.ipify.org 2>/dev/null) || true
+  fi
+  if [ -z "$ip" ]; then
+    ip=$(curl -s --connect-timeout 3 https://ip.sb 2>/dev/null) || true
+  fi
+  echo "$ip"
+}
+
 stop_app_processes() {
   local stopped=0
   if [ -f "$PIDS_DIR/server.pid" ]; then

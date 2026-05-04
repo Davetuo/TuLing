@@ -75,6 +75,14 @@ try {
     }
 } catch { }
 
+$publicIp = Get-PublicIP
+if ($publicIp) {
+    Write-Info "公网访问: http://${publicIp}:3000"
+    if ($lanAddr) {
+        Write-Warn "请确保路由器已配置端口转发 (3000 -> ${lanAddr}:3000)"
+    }
+}
+
 Write-Info "按 Ctrl+C 停止所有服务"
 Write-Host ""
 

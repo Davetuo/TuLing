@@ -94,6 +94,12 @@ if [ -n "$LAN_IP" ]; then
   info "局域网访问: http://${LAN_IP}:3000"
 fi
 
+PUBLIC_IP=$(get_public_ip)
+if [ -n "$PUBLIC_IP" ]; then
+  info "公网访问: http://${PUBLIC_IP}:3000"
+  warn "请确保路由器已配置端口转发 (3000 -> ${LAN_IP:-<主机IP>}:3000)"
+fi
+
 info "按 Ctrl+C 停止服务"
 echo ""
 

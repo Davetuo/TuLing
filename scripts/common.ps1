@@ -82,6 +82,19 @@ function Confirm-Action {
     return $response -match '^[yY]'
 }
 
+function Get-PublicIP {
+    $services = @("https://ifconfig.me/ip", "https://api.ipify.org", "https://ip.sb")
+    foreach ($svc in $services) {
+        try {
+            $ip = (Invoke-WebRequest -Uri $svc -TimeoutSec 3 -UseBasicParsing).Content.Trim()
+            if ($ip -match '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$') {
+                return $ip
+            }
+        } catch { }
+    }
+    return ""
+}
+
 function Stop-AppProcesses {
     $stopped = $false
 
