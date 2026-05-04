@@ -45,8 +45,8 @@ export class OpenAICompatProvider implements LLMProvider {
 
     const controller = new AbortController();
 
-    // 15-second timeout
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    // 15-second first-token timeout
+    let timeout: NodeJS.Timeout | null = setTimeout(() => controller.abort(), 15000);
 
     try {
       const response = await fetch(`${apiUrl}/v1/chat/completions`, {
@@ -58,6 +58,10 @@ export class OpenAICompatProvider implements LLMProvider {
         body: JSON.stringify(body),
         signal: controller.signal,
       });
+
+      // First token received — clear the first-token timeout
+      clearTimeout(timeout!);
+      timeout = null;
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => '');
@@ -126,7 +130,7 @@ export class OpenAICompatProvider implements LLMProvider {
       this.logger.error('LLM stream error', err);
       yield { content: '', done: true, error: 'AI 服务请求失败，请检查网络后重试' };
     } finally {
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
     }
   }
 }

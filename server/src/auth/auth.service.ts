@@ -89,7 +89,7 @@ export class AuthService {
       throw new UnauthorizedException('账号已被禁用，请联系客服');
     }
 
-    const tokens = await this.generateTokens(user.id, dto.account);
+    const tokens = await this.generateTokens(user.id, user.email!);
     this.logger.log(`User logged in: ${user.id}`);
     return {
       user: { id: user.id, email: user.email, nickname: user.nickname },
@@ -128,6 +128,12 @@ export class AuthService {
     if (!user) throw new UnauthorizedException('用户不存在');
 
       return this.generateTokens(user.id, user.email!);
+  }
+
+  async getUserInfo(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('用户不存在');
+    return { id: user.id, email: user.email, nickname: user.nickname };
   }
 
   async sendCaptcha(email: string) {

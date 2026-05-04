@@ -13,55 +13,102 @@ Write-Host ""
 Test-Node
 Test-Docker
 
-# ── 后端依赖 ──
-Write-Info "安装后端依赖..."
-Set-Location (Join-Path $ProjectRoot "server")
-npm install
-Write-Success "后端依赖安装完成"
+# ── 判断是否需要安装依赖 ──
+$serverDir = Join-Path $ProjectRoot "server"
+$clientDir = Join-Path $ProjectRoot "client"
 
-# ── 前端依赖 ──
-Write-Info "安装前端依赖..."
-Set-Location (Join-Path $ProjectRoot "client")
-npm install
-Write-Success "前端依赖安装完成"
+function Test-DepsNeeded {
+    param([string]$Dir)
+    $nm = Join-Path $Dir "node_modules"
+    if (-not (Test-Path $nm)) { return $true }
+    $pkg = Join-Path $Dir "package.json"
+    if ((Get-Item $pkg).LastWriteTime -gt (Get-Item $nm).LastWriteTime) { return $true }
+    return $false
+}
+
+$needServer = Test-DepsNeeded $serverDir
+$needClient = Test-DepsNeeded $clientDir
+
+# ── 启动 Docker 容器（后台运行，利用依赖安装的时间） ──
+Write-Info "Starting Docker containers (PostgreSQL + Redis)..."
+Set-Location $ProjectRoot
+$containersUp = docker compose ps --format "{{.Status}}" 2>$null | Select-String "Up"
+if (-not $containersUp) {
+    docker compose up -d
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error-Exit "Docker container startup failed"
+    }
+} else {
+    Write-Info "Docker containers already running"
+}
+
+# ── 安装后端依赖 ──
+if ($needServer) {
+    Write-Info "Installing server dependencies..."
+    Set-Location $serverDir
+    npm install --no-audit --no-fund --prefer-offline
+    if ($LASTEXITCODE -ne 0) { Write-Error-Exit "Server dependency installation failed" }
+    Write-Success "Server dependencies installed"
+} else {
+    Write-Info "Server dependencies up-to-date (skip)"
+}
+
+# ── 安装前端依赖 ──
+if ($needClient) {
+    Write-Info "Installing client dependencies..."
+    Set-Location $clientDir
+    npm install --no-audit --no-fund --prefer-offline
+    if ($LASTEXITCODE -ne 0) { Write-Error-Exit "Client dependency installation failed" }
+    Write-Success "Client dependencies installed"
+} else {
+    Write-Info "Client dependencies up-to-date (skip)"
+}
+
+# ── 等待基础设施就绪 ──
+Wait-Port 5432 30
+Wait-Port 6379 30
 
 # ── 环境变量 ──
 Set-Location $ProjectRoot
 $envFile = Join-Path $ProjectRoot "server\.env"
 if (-not (Test-Path $envFile)) {
-    Write-Info "生成 server\.env 配置文件..."
+    Write-Info "Generating server\.env from template..."
     Copy-Item (Join-Path $ProjectRoot "server\.env.example") $envFile
-    Write-Warn "已生成 server\.env，请根据需要修改 JWT 密钥和 SMTP 配置"
+    Write-Warn "Edit server\.env to set JWT secrets and SMTP config"
 } else {
-    Write-Info "server\.env 已存在，跳过"
+    Write-Info "server\.env already exists, skip"
 }
-
-# ── 启动 Docker 容器 ──
-Write-Info "启动 Docker 容器（PostgreSQL + Redis）..."
-Set-Location $ProjectRoot
-$containersUp = docker compose ps --format "{{.Status}}" 2>$null | Select-String "Up"
-if (-not $containersUp) {
-    docker compose up -d
-} else {
-    Write-Info "Docker 容器已在运行"
-}
-
-Write-Info "等待 PostgreSQL 就绪（端口 5432）..."
-Wait-Port 5432
-Write-Success "PostgreSQL 就绪"
 
 # ── 数据库初始化 ──
-Write-Info "初始化数据库..."
-Set-Location (Join-Path $ProjectRoot "server")
-npx prisma generate
-npx prisma migrate dev
-Write-Success "数据库初始化完成"
+Write-Info "Initializing database..."
+Set-Location $serverDir
+
+# Prisma generate (retry up to 3 times for Windows file locks)
+$retry = 0
+while ($retry -lt 3) {
+    npx prisma generate
+    if ($LASTEXITCODE -eq 0) { break }
+    $retry++
+    if ($retry -ge 3) { Write-Error-Exit "Prisma generate failed after 3 attempts" }
+    Write-Warn "Prisma generate failed, retrying ($retry/3)..."
+    Start-Sleep -Seconds 3
+}
+
+# Use migrate deploy (faster) when possible; fall back to migrate dev
+npx prisma migrate deploy 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Write-Info "migrate deploy unavailable, using migrate dev..."
+    npx prisma migrate dev
+    if ($LASTEXITCODE -ne 0) { Write-Error-Exit "Database migration failed" }
+}
+
+Write-Success "Database initialized"
 
 # ── 完成 ──
 Write-Host ""
 Write-Success "========================================="
-Write-Success "  部署完成！"
+Write-Success "  Setup complete!"
 Write-Success "========================================="
 Write-Host ""
-Write-Info "运行 .\scripts\start.ps1 启动所有服务"
+Write-Info "Run .\scripts\start.ps1 to start all services"
 Write-Host ""

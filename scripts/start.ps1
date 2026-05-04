@@ -62,6 +62,19 @@ Write-Success "========================================="
 Write-Host ""
 Write-Info "后端 API:  http://localhost:3000"
 Write-Info "前端页面:  http://localhost:5173"
+
+# ── 获取局域网 IP ──
+try {
+    $lanAddr = Get-NetIPAddress -AddressFamily IPv4 -PrefixOrigin Dhcp,Manual -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPAddress -ne '127.0.0.1' -and $_.IPAddress -notlike '172.*' } |
+        Select-Object -First 1 -ExpandProperty IPAddress
+    if ($lanAddr) {
+        Write-Info "局域网访问:"
+        Write-Info "  前端:     http://${lanAddr}:5173"
+        Write-Info "  后端 API: http://${lanAddr}:3000"
+    }
+} catch { }
+
 Write-Info "按 Ctrl+C 停止所有服务"
 Write-Host ""
 

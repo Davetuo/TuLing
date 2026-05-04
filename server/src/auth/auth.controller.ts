@@ -82,23 +82,28 @@ export class AuthController {
   @Get('me')
   @HttpCode(HttpStatus.OK)
   async me(@CurrentUser() user: JwtPayload) {
-    return { code: 0, data: { id: user.sub, email: user.email } };
+    const userInfo = await this.authService.getUserInfo(user.sub);
+    return { code: 0, data: userInfo };
   }
 
   // ── Cookie 工具 ──
 
   private setTokenCookies(reply: FastifyReply, accessToken: string, refreshToken: string) {
+    // HTTP 环境下 secure=true 会导致浏览器拒绝保存 Cookie，
+    // 因此只有存在 HTTPS 代理（X-Forwarded-Proto）时才启用 secure
+    const isSecure = (process.env.NODE_ENV === 'production') && process.env.HTTPS === 'true';
+
     reply.setCookie('access_token', accessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      secure: isSecure,
+      sameSite: 'lax',
       path: '/',
       maxAge: 15 * 60, // 15 minutes
     });
     reply.setCookie('refresh_token', refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      secure: isSecure,
+      sameSite: 'lax',
       path: '/api/auth/refresh',
       maxAge: 7 * 24 * 60 * 60, // 7 days
     });

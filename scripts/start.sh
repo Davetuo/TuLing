@@ -71,6 +71,21 @@ success "========================================="
 echo ""
 info "后端 API:  http://localhost:3000"
 info "前端页面:  http://localhost:5173"
+
+# ── 获取局域网 IP ──
+LAN_IP=""
+if command -v hostname &> /dev/null; then
+  LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}') || true
+fi
+if [ -z "$LAN_IP" ] && command -v ipconfig &> /dev/null; then
+  LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null) || true
+fi
+if [ -n "$LAN_IP" ]; then
+  info "局域网访问:"
+  info "  前端:     http://${LAN_IP}:5173"
+  info "  后端 API: http://${LAN_IP}:3000"
+fi
+
 info "按 Ctrl+C 停止所有服务"
 echo ""
 
