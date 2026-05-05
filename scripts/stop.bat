@@ -1,6 +1,8 @@
 @echo off
 setlocal enabledelayedexpansion
 call "%~dp0common.bat"
+if %ERRORLEVEL% NEQ 0 exit /b 1
+
 
 echo.
 echo =========================================
@@ -62,17 +64,18 @@ if !FOUND! EQU 1 (
     echo [INFO] Frontend not running
 )
 
-REM ===== Stop Docker containers (keep data volumes) =====
+REM ===== Stop containers (keep data volumes) =====
 echo.
-echo [INFO] Stopping Docker containers - data preserved...
+echo [INFO] Stopping containers - data preserved...
 cd /d "%PROJECT_ROOT%"
-docker compose down
+%COMPOSE_CMD% down
 if %ERRORLEVEL% NEQ 0 (
-    echo [WARN] Docker stop encountered an issue - may already be stopped
+    echo [WARN] Container stop encountered an issue - may already be stopped
 ) else (
-    echo [OK] Docker containers stopped
+    echo [OK] Containers stopped
 )
 echo.
+
 
 echo [OK] =========================================
 echo [OK]   All services stopped (data preserved)

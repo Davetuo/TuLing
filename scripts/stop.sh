@@ -15,10 +15,11 @@ echo ""
 info "停止应用进程..."
 stop_app_processes
 
-# ── 停止 Docker 容器（保留数据卷） ──
-info "停止 Docker 容器（保留数据）..."
-docker compose down
-success "Docker 容器已停止"
+# ── 停止容器（保留数据卷） ──
+info "停止容器（保留数据）..."
+compose down
+success "容器已停止"
+
 
 echo ""
 success "========================================="

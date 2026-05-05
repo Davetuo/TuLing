@@ -1,33 +1,28 @@
 @echo off
 setlocal enabledelayedexpansion
 call "%~dp0common.bat"
+if %ERRORLEVEL% NEQ 0 exit /b 1
+
 
 echo =========================================
 echo   TuLing - Production Start
 echo =========================================
 echo.
 
-REM Check Docker
-where docker >nul
+REM Container runtime
+echo [INFO] %CONTAINER_RUNTIME_NAME% ready (ok)
+
+
+REM Containers
+cd /d "%PROJECT_ROOT%"
+%COMPOSE_CMD% ps --format "{{.Status}}" 2>nul | findstr "Up" >nul
 if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Docker not found
-    exit /b 1
-)
-docker info >nul
-if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Docker is not running. Please start Docker Desktop
-    exit /b 1
+    echo [INFO] Starting %CONTAINER_RUNTIME_NAME% containers...
+    %COMPOSE_CMD% up -d
+) else (
+    echo [INFO] %CONTAINER_RUNTIME_NAME% containers already running
 )
 
-REM Docker containers
-cd /d "%PROJECT_ROOT%"
-docker compose ps --format "{{.Status}}" 2>nul | findstr "Up" >nul
-if %ERRORLEVEL% NEQ 0 (
-    echo [INFO] Starting Docker containers...
-    docker compose up -d
-) else (
-    echo [INFO] Docker containers already running
-)
 
 REM Wait for ports
 call :wait_port 5432 "PostgreSQL" 30
@@ -92,7 +87,7 @@ echo [OK] =========================================
 echo.
 echo   Local:   http://localhost:3000
 echo   Network: http://%__lanip%:3000
-call :get_public_ip
+call "%~dp0common.bat" get_public_ip
 if defined __public_ip (
     echo   Public:  http://%__public_ip%:3000
     echo   [WARN] Please configure port forwarding on router (3000 -^> %__lanip%:3000)
@@ -108,7 +103,7 @@ echo [OK]   Production server started
 echo [OK] =========================================
 echo.
 echo   Local:   http://localhost:3000
-call :get_public_ip
+call "%~dp0common.bat" get_public_ip
 if defined __public_ip (
     echo   Public:  http://%__public_ip%:3000
     echo.

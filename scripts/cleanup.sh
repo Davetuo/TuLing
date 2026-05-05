@@ -12,7 +12,7 @@ warn "========================================="
 echo ""
 warn "此操作将执行以下清理："
 warn "  1. 停止所有运行中的服务进程"
-warn "  2. 删除 Docker 容器及数据卷（数据库数据将丢失）"
+warn "  2. 删除 Docker/Podman 容器及数据卷（数据库数据将丢失）"
 warn "  3. 删除 node_modules/ 目录"
 warn "  4. 删除 dist/ 构建产物"
 echo ""
@@ -32,10 +32,11 @@ echo ""
 info "停止应用进程..."
 stop_app_processes
 
-# ── 停止并删除 Docker 容器及数据卷 ──
-info "删除 Docker 容器及数据卷..."
-docker compose down -v
-success "Docker 容器及数据卷已删除"
+# ── 停止并删除容器及数据卷 ──
+info "删除容器及数据卷..."
+compose down -v
+success "容器及数据卷已删除"
+
 
 # ── 删除依赖和构建产物 ──
 info "清理 node_modules/ ..."

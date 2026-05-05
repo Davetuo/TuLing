@@ -29,15 +29,72 @@ check_node() {
   info "Node.js $(node -v) ✓"
 }
 
-check_docker() {
-  if ! command -v docker &> /dev/null; then
-    error "未检测到 Docker，请安装 Docker Desktop (https://docker.com)"
+CONTAINER_RUNTIME="${CONTAINER_RUNTIME:-}"
+CONTAINER_RUNTIME_NAME=""
+COMPOSE_CMD=()
+
+detect_container_runtime() {
+  local requested="${CONTAINER_RUNTIME:-}"
+  local candidates=()
+  if [ -n "$requested" ]; then
+    case "$requested" in
+      docker|podman) candidates=("$requested") ;;
+      *) error "CONTAINER_RUNTIME 仅支持 docker 或 podman (当前: $requested)" ;;
+    esac
+  else
+    candidates=(docker podman)
   fi
-  if ! docker info &> /dev/null; then
-    error "Docker 未运行，请启动 Docker Desktop"
-  fi
-  info "Docker 已就绪 ✓"
+
+  local runtime
+  for runtime in "${candidates[@]}"; do
+    if ! command -v "$runtime" &> /dev/null; then
+      [ -n "$requested" ] && error "未检测到 $runtime，请先安装 $runtime"
+      continue
+    fi
+    if ! "$runtime" info &> /dev/null; then
+      [ -n "$requested" ] && error "$runtime 未运行，请启动对应服务"
+      continue
+    fi
+    if "$runtime" compose version &> /dev/null; then
+      CONTAINER_RUNTIME="$runtime"
+      COMPOSE_CMD=("$runtime" compose)
+    elif command -v "${runtime}-compose" &> /dev/null; then
+      CONTAINER_RUNTIME="$runtime"
+      COMPOSE_CMD=("${runtime}-compose")
+    else
+      [ -n "$requested" ] && error "未检测到 $runtime compose，请安装 Compose 插件或 ${runtime}-compose"
+      continue
+    fi
+    case "$runtime" in
+      docker) CONTAINER_RUNTIME_NAME="Docker" ;;
+      podman)
+        CONTAINER_RUNTIME_NAME="Podman"
+        export PODMAN_COMPOSE_WARNING_LOGS="${PODMAN_COMPOSE_WARNING_LOGS:-false}"
+        ;;
+    esac
+
+    return 0
+  done
+
+  error "未检测到可用的 Docker 或 Podman，请安装并启动 Docker Desktop / Podman"
 }
+
+check_container_runtime() {
+  detect_container_runtime
+  info "$CONTAINER_RUNTIME_NAME 已就绪 ✓"
+}
+
+check_docker() {
+  check_container_runtime
+}
+
+compose() {
+  if [ ${#COMPOSE_CMD[@]} -eq 0 ]; then
+    detect_container_runtime
+  fi
+  "${COMPOSE_CMD[@]}" "$@"
+}
+
 
 check_port() {
   local port=$1
@@ -63,9 +120,10 @@ wait_for_port() {
     sleep 0.5
     elapsed=$((elapsed + 1))
     if [ "$elapsed" -ge "$((timeout * 2))" ]; then
-      if [ "$retried" -eq 0 ] && command -v docker &> /dev/null && docker compose ps --format "{{.Service}}" 2>/dev/null | grep -q .; then
-        warn "端口 $port 等待超时，尝试重启 Docker 容器..."
-        docker compose restart 2>/dev/null || true
+      if [ "$retried" -eq 0 ] && compose ps --format "{{.Service}}" 2>/dev/null | grep -q .; then
+        warn "端口 $port 等待超时，尝试重启 ${CONTAINER_RUNTIME_NAME:-容器运行时} 容器..."
+        compose restart 2>/dev/null || true
+
         retried=1
         elapsed=0
         sleep 2

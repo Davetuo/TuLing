@@ -1,4 +1,4 @@
-# 途灵 - 一键清理脚本 (PowerShell，不可逆操作)
+﻿# 途灵 - 一键清理脚本 (PowerShell，不可逆操作)
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -11,12 +11,13 @@ Write-Warn "========================================="
 Write-Host ""
 Write-Warn "此操作将执行以下清理："
 Write-Warn "  1. 停止所有运行中的服务进程"
-Write-Warn "  2. 删除 Docker 容器及数据卷（数据库数据将丢失）"
+Write-Warn "  2. 删除 Docker/Podman 容器及数据卷（数据库数据将丢失）"
 Write-Warn "  3. 删除 node_modules\ 目录"
 Write-Warn "  4. 删除 dist\ 构建产物"
 Write-Host ""
 
-if (-not (Confirm-Action "确定要继续清理吗？")) {
+if (-not (Confirm-Action -Message '确定要继续清理吗？')) {
+
     Write-Info "已取消清理操作"
     exit 0
 }
@@ -31,13 +32,14 @@ Write-Host ""
 Write-Info "停止应用进程..."
 Stop-AppProcesses
 
-# ── 停止并删除 Docker 容器及数据卷 ──
-Write-Info "删除 Docker 容器及数据卷..."
-docker compose down -v
+# ── 停止并删除容器及数据卷 ──
+Write-Info "删除容器及数据卷..."
+Invoke-Compose down -v
 if ($LASTEXITCODE -ne 0) {
-    Write-Warn "Docker 清理时出现问题"
+    Write-Warn "容器清理时出现问题"
 }
-Write-Success "Docker 容器及数据卷已删除"
+Write-Success "容器及数据卷已删除"
+
 
 # ── 删除依赖和构建产物 ──
 Write-Info "清理 node_modules\ ..."

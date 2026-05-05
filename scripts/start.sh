@@ -22,16 +22,17 @@ info "========================================="
 echo ""
 
 check_node
-check_docker
+check_container_runtime
 
-# ── Docker 容器 ──
-CONTAINERS_RUNNING=$(docker compose ps --format '{{.Status}}' 2>/dev/null | grep -c 'Up' || echo 0)
+# ── 容器 ──
+CONTAINERS_RUNNING=$(compose ps --format '{{.Status}}' 2>/dev/null | grep -c 'Up' || echo 0)
 if [ "$CONTAINERS_RUNNING" -eq 0 ]; then
-  info "启动 Docker 容器 (PostgreSQL + Redis)..."
-  docker compose up -d
+  info "启动 ${CONTAINER_RUNTIME_NAME} 容器 (PostgreSQL + Redis)..."
+  compose up -d
 else
-  info "Docker 容器已在运行"
+  info "${CONTAINER_RUNTIME_NAME} 容器已在运行"
 fi
+
 
 # ── 等待基础设施就绪 ──
 wait_for_port 5432 30

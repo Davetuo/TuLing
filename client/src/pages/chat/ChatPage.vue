@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { ref, nextTick, watch, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Plus, ChatDotRound, Position, CopyDocument } from '@element-plus/icons-vue'
+import { Plus, ChatDotRound, Position, CopyDocument, ArrowLeft } from '@element-plus/icons-vue'
 import { getSessions, getSession, createSession, sendMessage, generateSummary, getRecommendations } from '@/shared/api/chat'
 import type { ChatSession, ChatMessage, Recommendation } from '@/shared/types/chat'
 import { apiClient } from '@/shared/api/client'
+
+// ── Router ──
+
+const router = useRouter()
 
 // ── State ──
 
@@ -277,6 +282,10 @@ function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
 }
 
+function goHome() {
+  router.push({ name: 'Home' })
+}
+
 // ── Init ──
 
 loadSessions()
@@ -323,6 +332,9 @@ loadRecommendations()
       <!-- Header -->
       <div class="chat-header">
         <div class="chat-header-left">
+          <el-tooltip content="返回首页" placement="bottom">
+            <el-button text :icon="ArrowLeft" @click="goHome" class="back-btn" />
+          </el-tooltip>
           <el-button v-if="sidebarCollapsed" text @click="toggleSidebar" class="menu-btn">
             ☰
           </el-button>
@@ -542,6 +554,18 @@ loadRecommendations()
   margin: 0;
   font-size: 16px;
   color: #303133;
+}
+
+.back-btn {
+  font-size: 18px;
+  color: #606266;
+  padding: 8px;
+  min-width: 36px;
+  min-height: 36px;
+}
+
+.back-btn:hover {
+  color: #667eea;
 }
 
 /* ── Messages ── */
@@ -769,6 +793,12 @@ loadRecommendations()
 
   .message-row {
     max-width: 90%;
+  }
+
+  .back-btn {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 10px;
   }
 }
 </style>

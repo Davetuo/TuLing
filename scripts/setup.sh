@@ -12,7 +12,7 @@ info "========================================="
 echo ""
 
 check_node
-check_docker
+check_container_runtime
 
 # ── 判断是否需要安装依赖 ──
 needs_install() {
@@ -22,14 +22,15 @@ needs_install() {
   return 1
 }
 
-# ── 启动 Docker 容器（尽早启动，利用依赖安装的时间等待就绪） ──
-info "启动 Docker 容器（PostgreSQL + Redis）..."
+# ── 启动容器（尽早启动，利用依赖安装的时间等待就绪） ──
+info "启动 ${CONTAINER_RUNTIME_NAME} 容器（PostgreSQL + Redis）..."
 cd "$PROJECT_ROOT"
-if ! docker compose ps --format "{{.Status}}" 2>/dev/null | grep -q "Up"; then
-  docker compose up -d
+if ! compose ps --format "{{.Status}}" 2>/dev/null | grep -q "Up"; then
+  compose up -d
 else
-  info "Docker 容器已在运行"
+  info "${CONTAINER_RUNTIME_NAME} 容器已在运行"
 fi
+
 
 # ── 后端依赖 ──
 if needs_install "$PROJECT_ROOT/server"; then

@@ -1,6 +1,8 @@
 @echo off
 setlocal enabledelayedexpansion
 call "%~dp0common.bat"
+if %ERRORLEVEL% NEQ 0 exit /b 1
+
 
 echo.
 echo =========================================
@@ -22,19 +24,10 @@ if !NODE_MAJOR! LSS 20 (
 )
 echo [INFO] Node.js !NODE_FULL! (ok)
 
-REM ===== Check Docker =====
-where docker >nul
-if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Docker not found. Please install Docker Desktop
-    exit /b 1
-)
-docker info >nul
-if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Docker is not running. Please start Docker Desktop
-    exit /b 1
-)
-echo [INFO] Docker ready (ok)
+REM ===== Container runtime =====
+echo [INFO] %CONTAINER_RUNTIME_NAME% ready (ok)
 echo.
+
 
 REM ===== Install dependencies (skip if node_modules is up-to-date) =====
 set NEED_SERVER=0
@@ -86,34 +79,65 @@ if not exist "server\.env" (
 )
 echo.
 
-REM ===== Start Docker containers (in background, while deps install) =====
-echo [INFO] Starting Docker containers (PostgreSQL + Redis)...
+REM ===== Start containers (PostgreSQL + Redis) =====
+echo [INFO] Starting %CONTAINER_RUNTIME_NAME% containers (PostgreSQL + Redis)...
 cd /d "%PROJECT_ROOT%"
-docker compose ps --format "{{.Status}}" 2>nul | findstr "Up" >nul
-if %ERRORLEVEL% NEQ 0 (
-    docker compose up -d
+%COMPOSE_CMD% ps --format "{{.Status}}" 2>nul | findstr "Up" >nul
+if !ERRORLEVEL! NEQ 0 (
+    %COMPOSE_CMD% up -d
+    if !ERRORLEVEL! NEQ 0 (
+        echo [ERROR] Failed to start containers.
+        echo [INFO] Container logs:
+        %COMPOSE_CMD% logs --tail=20
+        exit /b 1
+    )
 ) else (
-    echo [INFO] Docker containers already running
+    echo [INFO] %CONTAINER_RUNTIME_NAME% containers already running
 )
 
-REM Wait for PostgreSQL with retry
-echo [INFO] Waiting for PostgreSQL (port 5432)...
+REM ===== Detect database host =====
+set "DB_HOST=localhost"
+set "DB_PORT=5432"
+if /i "%CONTAINER_RUNTIME%"=="podman" (
+    REM Podman on Windows/WSL2: localhost forwarding may not work, use machine IP
+    for /f "tokens=2 delims= " %%I in ('podman machine ssh -- ip addr show eth0 2^>nul ^| findstr "inet "') do (
+        for /f "tokens=1 delims=/" %%B in ("%%I") do set "DB_HOST=%%B"
+    )
+)
+echo [INFO] Database target: !DB_HOST!:!DB_PORT!
+
+REM ===== Auto-update .env with correct host (Podman WSL2 IP may change) =====
+if /i "!DB_HOST!" NEQ "localhost" (
+    echo [INFO] Updating server\.env with Podman machine IP (!DB_HOST!)...
+    powershell -NoProfile -Command ^
+        "$f='%PROJECT_ROOT%\server\.env'; $c=Get-Content $f; ^
+         $c=$c -replace '(@)([^:/@]+)(:5432)', \"@!DB_HOST!:5432\"; ^
+         $c=$c -replace 'REDIS_HOST=.*', 'REDIS_HOST=!DB_HOST!'; ^
+         Set-Content $f $c -NoNewline:$false"
+)
+
+REM Wait for PostgreSQL to accept TCP connections
+echo [INFO] Waiting for PostgreSQL (!DB_HOST!:!DB_PORT!)...
 set /a _db_wait=0
 set _db_retried=0
 :wait_pg_setup
-netstat -ano 2>nul | findstr ":5432" >nul
-if %ERRORLEVEL% EQU 0 goto pg_ready
+node "%SCRIPT_DIR%check-port.js" "!DB_HOST!" "!DB_PORT!" >nul 2>nul
+if !ERRORLEVEL! EQU 0 goto pg_ready
 set /a _db_wait+=1
-if %_db_wait% GEQ 30 (
-    if %_db_retried% EQU 0 (
-        echo [WARN] Port 5432 timeout, restarting Docker containers...
-        docker compose restart >nul 2>nul
+if !_db_wait! GEQ 30 (
+    if !_db_retried! EQU 0 (
+        echo [WARN] PostgreSQL not ready after 30s, restarting containers...
+        %COMPOSE_CMD% restart
+        echo [INFO] Container status:
+        %COMPOSE_CMD% ps
         set _db_retried=1
         set /a _db_wait=0
-        timeout /t 2 /nobreak >nul 2>nul
+        timeout /t 3 /nobreak >nul 2>nul
         goto wait_pg_setup
     )
-    echo [ERROR] Port 5432 wait timeout - 30 seconds
+    echo [ERROR] PostgreSQL connection timeout (60 seconds total)
+    echo [INFO] Container logs:
+    %COMPOSE_CMD% logs postgres --tail=30
     exit /b 1
 )
 timeout /t 1 /nobreak >nul 2>nul

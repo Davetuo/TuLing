@@ -1,4 +1,4 @@
-# 途灵 - 一键生产启动脚本 (PowerShell)
+﻿# 途灵 - 一键生产启动脚本 (PowerShell)
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -11,19 +11,22 @@ Write-Info "========================================="
 Write-Host ""
 
 Test-Node
-Test-Docker
+Test-ContainerRuntime
 
-# ── Docker 容器 ──
-$running = docker compose ps --format '{{.Status}}' 2>$null | Select-String "Up"
+# ── 容器 ──
+$running = Invoke-Compose ps --format '{{.Status}}' 2>$null | Select-String "Up"
 if (-not $running) {
-    Write-Info "启动 Docker 容器 (PostgreSQL + Redis)..."
-    docker compose up -d
+    Write-Info "启动 $script:ContainerRuntimeName 容器 (PostgreSQL + Redis)..."
+    Invoke-Compose up -d
     if ($LASTEXITCODE -ne 0) {
-        Write-Error-Exit "Docker 容器启动失败"
+        Write-Error-Exit "$script:ContainerRuntimeName 容器启动失败"
     }
 } else {
-    Write-Info "Docker 容器已在运行"
+    Write-Info "$script:ContainerRuntimeName 容器已在运行"
 }
+
+# ── Podman Windows 端口代理 ──
+Ensure-PodmanPortForward
 
 # ── 等待基础设施就绪 ──
 Wait-Port 5432 30

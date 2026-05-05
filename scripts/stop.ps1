@@ -1,4 +1,4 @@
-# 途灵 - 一键停止脚本 (PowerShell，保留数据)
+﻿# 途灵 - 一键停止脚本 (PowerShell，保留数据)
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -14,13 +14,14 @@ Write-Host ""
 Write-Info "停止应用进程..."
 Stop-AppProcesses
 
-# ── 停止 Docker 容器（保留数据卷） ──
-Write-Info "停止 Docker 容器（保留数据）..."
-docker compose down
+# ── 停止容器（保留数据卷） ──
+Write-Info "停止容器（保留数据）..."
+Invoke-Compose down
 if ($LASTEXITCODE -ne 0) {
-    Write-Warn "Docker 容器停止时出现问题（可能已停止）"
+    Write-Warn "容器停止时出现问题（可能已停止）"
 }
-Write-Success "Docker 容器已停止"
+Write-Success "容器已停止"
+
 
 Write-Host ""
 Write-Success "========================================="

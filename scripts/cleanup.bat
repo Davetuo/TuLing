@@ -1,6 +1,8 @@
 @echo off
 setlocal enabledelayedexpansion
 call "%~dp0common.bat"
+if %ERRORLEVEL% NEQ 0 exit /b 1
+
 
 echo.
 echo =========================================
@@ -10,7 +12,7 @@ echo =========================================
 echo.
 echo This will:
 echo   1. Stop all running service processes
-echo   2. Remove Docker containers AND data volumes (DB data will be lost)
+echo   2. Remove Docker/Podman containers AND data volumes (DB data will be lost)
 echo   3. Delete node_modules\ directories
 echo   4. Delete dist\ build artifacts
 echo.
@@ -54,15 +56,16 @@ if !FOUND! EQU 0 (
 echo [OK] App processes stopped
 echo.
 
-echo [INFO] Removing Docker containers and data volumes...
+echo [INFO] Removing containers and data volumes...
 cd /d "%PROJECT_ROOT%"
-docker compose down -v
+%COMPOSE_CMD% down -v
 if %ERRORLEVEL% NEQ 0 (
-    echo [WARN] Docker cleanup encountered an issue
+    echo [WARN] Container cleanup encountered an issue
 ) else (
-    echo [OK] Docker containers and data volumes removed
+    echo [OK] Containers and data volumes removed
 )
 echo.
+
 
 echo [INFO] Removing node_modules\ ...
 if exist "%PROJECT_ROOT%\server\node_modules" (

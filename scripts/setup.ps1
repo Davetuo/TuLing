@@ -1,4 +1,4 @@
-# 途灵 - 一键部署脚本 (PowerShell)
+﻿# 途灵 - 一键部署脚本 (PowerShell)
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -11,7 +11,7 @@ Write-Info "========================================="
 Write-Host ""
 
 Test-Node
-Test-Docker
+Test-ContainerRuntime
 
 # ── 判断是否需要安装依赖 ──
 $serverDir = Join-Path $ProjectRoot "server"
@@ -29,18 +29,21 @@ function Test-DepsNeeded {
 $needServer = Test-DepsNeeded $serverDir
 $needClient = Test-DepsNeeded $clientDir
 
-# ── 启动 Docker 容器（后台运行，利用依赖安装的时间） ──
-Write-Info "Starting Docker containers (PostgreSQL + Redis)..."
+# ── 启动容器（后台运行，利用依赖安装的时间） ──
+Write-Info "Starting $script:ContainerRuntimeName containers (PostgreSQL + Redis)..."
 Set-Location $ProjectRoot
-$containersUp = docker compose ps --format "{{.Status}}" 2>$null | Select-String "Up"
+$containersUp = Invoke-Compose ps --format "{{.Status}}" 2>$null | Select-String "Up"
 if (-not $containersUp) {
-    docker compose up -d
+    Invoke-Compose up -d
     if ($LASTEXITCODE -ne 0) {
-        Write-Error-Exit "Docker container startup failed"
+        Write-Error-Exit "$script:ContainerRuntimeName container startup failed"
     }
 } else {
-    Write-Info "Docker containers already running"
+    Write-Info "$script:ContainerRuntimeName containers already running"
 }
+
+# ── Podman Windows 端口代理 ──
+Ensure-PodmanPortForward
 
 # ── 安装后端依赖 ──
 if ($needServer) {
