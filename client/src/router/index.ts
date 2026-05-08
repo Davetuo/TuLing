@@ -1,56 +1,10 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { routes } from 'vue-router/auto-routes'
 import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
   history: createWebHistory(),
-  routes: [
-    {
-      path: '/login',
-      name: 'Login',
-      component: () => import('@/pages/auth/LoginPage.vue'),
-      meta: { requiresGuest: true },
-    },
-    {
-      path: '/register',
-      name: 'Register',
-      component: () => import('@/pages/auth/RegisterPage.vue'),
-      meta: { requiresGuest: true },
-    },
-    {
-      path: '/',
-      redirect: '/home',
-    },
-    {
-      path: '/home',
-      name: 'Home',
-      component: () => import('@/pages/home/HomePage.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/chat',
-      name: 'Chat',
-      component: () => import('@/pages/chat/ChatPage.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/spots',
-      name: 'Spots',
-      component: () => import('@/pages/spots/SpotListPage.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/trips',
-      name: 'Trips',
-      component: () => import('@/pages/trips/TripListPage.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/albums',
-      name: 'Albums',
-      component: () => import('@/pages/albums/AlbumListPage.vue'),
-      meta: { requiresAuth: true },
-    },
-  ],
+  routes,
 })
 
 router.beforeEach(async (to, _from, next) => {

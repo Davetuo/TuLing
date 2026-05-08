@@ -25,10 +25,25 @@ export class JwtAuthGuard {
       context.getHandler(),
       context.getClass(),
     ]);
-    if (isPublic) return true;
 
     const request = context.switchToHttp().getRequest<FastifyRequest>();
     const token = this.extractToken(request);
+
+    if (isPublic) {
+      // 公开路由：尝试解析用户（不强制）
+      if (token) {
+        try {
+          const payload = await this.jwtService.verifyAsync(token, {
+            secret: this.configService.get('JWT_ACCESS_SECRET'),
+          });
+          const req = request as unknown as Record<string, unknown>;
+          req.user = { sub: payload.sub, email: payload.email };
+        } catch {
+          // 公开路由中 token 无效不报错，只是不设置 user
+        }
+      }
+      return true;
+    }
 
     if (!token) {
       throw new UnauthorizedException('请先登录');

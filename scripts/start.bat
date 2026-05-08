@@ -66,10 +66,39 @@ goto wploop
 endlocal
 :after_wait
 
-REM ===== Build backend =====
+REM ===== Database migration =====
 echo.
-echo [INFO] Building backend (NestJS)...
+echo [INFO] Running database migration (Prisma)...
 cd /d "%PROJECT_ROOT%\server"
+call npx prisma generate
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] Prisma generate failed
+    exit /b 1
+)
+call npx prisma migrate deploy
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] Database migration failed
+    exit /b 1
+)
+echo [OK] Database migration complete
+
+REM ===== Install backend dependencies =====
+echo.
+cd /d "%PROJECT_ROOT%\server"
+if not exist "node_modules\" (
+    echo [INFO] Installing backend dependencies...
+    call npm install
+    if %ERRORLEVEL% NEQ 0 (
+        echo [ERROR] Backend npm install failed
+        exit /b 1
+    )
+    echo [OK] Backend dependencies installed
+) else (
+    echo [INFO] Backend dependencies already installed
+)
+
+REM ===== Build backend =====
+echo [INFO] Building backend (NestJS)...
 call npm run build
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Backend build failed
@@ -77,10 +106,23 @@ if %ERRORLEVEL% NEQ 0 (
 )
 echo [OK] Backend build complete
 
-REM ===== Build frontend =====
+REM ===== Install frontend dependencies =====
 echo.
-echo [INFO] Building frontend (Vite)...
 cd /d "%PROJECT_ROOT%\client"
+if not exist "node_modules\" (
+    echo [INFO] Installing frontend dependencies...
+    call npm install
+    if %ERRORLEVEL% NEQ 0 (
+        echo [ERROR] Frontend npm install failed
+        exit /b 1
+    )
+    echo [OK] Frontend dependencies installed
+) else (
+    echo [INFO] Frontend dependencies already installed
+)
+
+REM ===== Build frontend =====
+echo [INFO] Building frontend (Vite)...
 call npm run build
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Frontend build failed

@@ -86,6 +86,18 @@ else
 fi
 success "数据库初始化完成"
 
+# ── 播种初始数据 ──
+info "检查并播种初始数据..."
+cd "$PROJECT_ROOT/server"
+SPOT_COUNT=$(node -e "const{PrismaClient}=require('@prisma/client');const p=new PrismaClient();p.scenicSpot.count().then(c=>{console.log(c);p.\$disconnect()}).catch(()=>{console.log(0);p.\$disconnect()})")
+if [ "$SPOT_COUNT" -eq 0 ]; then
+  info "景点数据为空，执行种子数据导入..."
+  npx ts-node prisma/seed-spots.ts
+  success "种子数据导入完成"
+else
+  info "景点数据已存在（${SPOT_COUNT} 条），跳过播种"
+fi
+
 # ── 完成 ──
 echo ""
 success "========================================="

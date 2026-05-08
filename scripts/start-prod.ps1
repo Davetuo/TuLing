@@ -32,6 +32,24 @@ Ensure-PodmanPortForward
 Wait-Port 5432 30
 Wait-Port 6379 30
 
+# ── 数据库迁移 ──
+Write-Info "执行数据库迁移 (Prisma)..."
+$serverDir = Join-Path $ProjectRoot "server"
+Push-Location $serverDir
+try {
+    npx prisma generate
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error-Exit "Prisma generate 失败"
+    }
+    npx prisma migrate deploy
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error-Exit "数据库迁移失败"
+    }
+    Write-Success "数据库迁移完成"
+} finally {
+    Pop-Location
+}
+
 # ── 构建后端 ──
 Write-Info "构建后端 (NestJS)..."
 $serverDir = Join-Path $ProjectRoot "server"

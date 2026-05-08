@@ -28,6 +28,22 @@ REM Wait for ports
 call :wait_port 5432 "PostgreSQL" 30
 call :wait_port 6379 "Redis" 30
 
+REM Database migration
+echo.
+echo [INFO] Running database migration (Prisma)...
+cd /d "%PROJECT_ROOT%\server"
+call npx prisma generate
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] Prisma generate failed
+    exit /b 1
+)
+call npx prisma migrate deploy
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] Database migration failed
+    exit /b 1
+)
+echo [OK] Database migration complete
+
 REM Build backend
 echo.
 echo [INFO] Building backend (NestJS)...

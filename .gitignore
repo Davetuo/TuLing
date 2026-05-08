@@ -40,7 +40,6 @@ docs/
 
 # ── 工具框架产出 ──
 openqa/
-openspec/
 
 # ── 脚本运行时 ──
 scripts/.pids/

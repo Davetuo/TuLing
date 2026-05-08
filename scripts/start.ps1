@@ -32,6 +32,24 @@ Ensure-PodmanPortForward
 Wait-Port 5432 30
 Wait-Port 6379 30
 
+# ── 数据库迁移 ──
+Write-Info "执行数据库迁移 (Prisma)..."
+$serverDir = Join-Path $ProjectRoot "server"
+Push-Location $serverDir
+try {
+    npx prisma generate
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error-Exit "Prisma generate 失败"
+    }
+    npx prisma migrate deploy
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error-Exit "数据库迁移失败"
+    }
+    Write-Success "数据库迁移完成"
+} finally {
+    Pop-Location
+}
+
 # ── 释放被占用的端口 ──
 foreach ($port in @(3000, 5173)) {
     $conn = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -First 1

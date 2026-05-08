@@ -1,9 +1,23 @@
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
+import { layouts, defaultLayout } from '@/layouts'
 
-const router = useRouter()
+const route = useRoute()
+
+const layoutComponent = computed(() => {
+  const layoutName = (route.meta?.layout as string) || defaultLayout
+  const component = layouts[layoutName]
+  if (!component) {
+    console.warn(`[LayoutResolver] Unknown layout "${layoutName}", falling back to "${defaultLayout}"`)
+    return layouts[defaultLayout]
+  }
+  return component
+})
 </script>
 
 <template>
-  <router-view />
+  <component :is="layoutComponent">
+    <router-view />
+  </component>
 </template>

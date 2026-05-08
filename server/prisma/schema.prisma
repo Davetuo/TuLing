@@ -20,6 +20,8 @@ model User {
 
   authTokens    AuthToken[]
   chatSessions  ChatSession[]
+  spotFavorites SpotFavorite[]
+  spotReviews   SpotReview[]
 
   @@map("users")
 }
@@ -66,4 +68,61 @@ model ChatMessage {
 
   @@index([sessionId, createdAt])
   @@map("chat_messages")
+}
+
+// ── 景点检索模块 ──
+
+model ScenicSpot {
+  id                String   @id @default(uuid()) @db.Uuid
+  name              String   @db.VarChar(255)
+  city              String   @default("") @db.VarChar(100)
+  address           String   @default("") @db.Text
+  tags              String[] @default([])
+  score             Decimal? @db.Decimal(3, 1)
+  openTime          String?  @map("open_time") @db.VarChar(200)
+  images            String[] @default([])
+  introduction      String?  @db.Text
+  transport         String?  @db.Text
+  ticketInfo        String?  @map("ticket_info") @db.VarChar(500)
+  phone             String?  @db.VarChar(50)
+  suggestedDuration String?  @map("suggested_duration") @db.VarChar(100)
+  source            String?  @db.VarChar(50)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  favorites SpotFavorite[]
+  reviews   SpotReview[]
+
+  @@map("scenic_spots")
+}
+
+model SpotFavorite {
+  userId    String   @map("user_id") @db.Uuid
+  spotId    String   @map("spot_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  spot ScenicSpot @relation(fields: [spotId], references: [id], onDelete: Cascade)
+
+  @@id([userId, spotId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("spot_favorites")
+}
+
+model SpotReview {
+  id        String   @id @default(uuid()) @db.Uuid
+  spotId    String   @map("spot_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  score     Int      @db.SmallInt
+  content   String?  @db.Text
+  images    String[] @default([])
+  status    String   @default("approved") @db.VarChar(50)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  spot ScenicSpot @relation(fields: [spotId], references: [id], onDelete: Cascade)
+  user User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([spotId, createdAt(sort: Desc)])
+  @@index([userId])
+  @@map("spot_reviews")
 }

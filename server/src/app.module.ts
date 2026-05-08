@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { ProviderModule } from './provider/provider.module';
 import { ChatModule } from './chat/chat.module';
+import { SpotModule } from './spot/spot.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 
 @Module({
@@ -33,6 +34,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
     UserModule,
     ProviderModule,
     ChatModule,
+    SpotModule,
   ],
   providers: [
     {

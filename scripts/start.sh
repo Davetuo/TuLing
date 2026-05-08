@@ -38,6 +38,13 @@ fi
 wait_for_port 5432 30
 wait_for_port 6379 30
 
+# ── 数据库迁移 ──
+info "执行数据库迁移 (Prisma)..."
+cd "$PROJECT_ROOT/server"
+npx prisma generate
+npx prisma migrate deploy
+success "数据库迁移完成"
+
 # ── 释放被占用的端口 ──
 for port in 3000 5173; do
   PORT_PID=$(lsof -ti:"$port" 2>/dev/null || true)

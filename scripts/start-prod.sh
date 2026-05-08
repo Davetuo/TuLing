@@ -42,6 +42,13 @@ fi
 wait_for_port 5432 30
 wait_for_port 6379 30
 
+# ── 数据库迁移 ──
+info "执行数据库迁移 (Prisma)..."
+cd "$PROJECT_ROOT/server"
+npx prisma generate
+npx prisma migrate deploy
+success "数据库迁移完成"
+
 # ── 构建后端 ──
 info "构建后端 (NestJS)..."
 cd "$PROJECT_ROOT/server"
