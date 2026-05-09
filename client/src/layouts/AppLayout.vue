@@ -14,10 +14,10 @@ async function handleLogout() {
 <template>
   <div class="app-layout">
     <header class="app-header">
-      <div class="header-left">
+      <router-link to="/home" class="header-left">
         <h1>途灵</h1>
         <span class="subtitle">AI 智能旅行搭子</span>
-      </div>
+      </router-link>
       <div class="header-right" v-if="authStore.isLoggedIn">
         <span class="user-info">{{ authStore.user?.nickname }}</span>
         <el-button type="danger" text @click="handleLogout">退出登录</el-button>
@@ -49,6 +49,9 @@ async function handleLogout() {
   display: flex;
   align-items: center;
   gap: 12px;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
 }
 
 .header-left h1 {
