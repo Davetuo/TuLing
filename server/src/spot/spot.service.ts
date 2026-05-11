@@ -1,9 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { RedisService } from '../redis/redis.service';
-import { SearchSpotsDto, SpotSortType } from './dto';
-import { Prisma } from '@prisma/client';
-import * as crypto from 'crypto';
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { PrismaService } from "../prisma/prisma.service";
+import { RedisService } from "../redis/redis.service";
+import { SearchSpotsDto, SpotSortType } from "./dto";
+import { Prisma } from "@prisma/client";
+import * as crypto from "crypto";
 
 @Injectable()
 export class SpotService {
@@ -28,16 +28,19 @@ export class SpotService {
     }
 
     // 构建 WHERE 条件
-    const where: Prisma.ScenicSpotWhereInput = {
-      OR: [
-        { name: { contains: keyword, mode: 'insensitive' } },
-        { city: { contains: keyword, mode: 'insensitive' } },
+    const where: Prisma.ScenicSpotWhereInput = {};
+
+    // 如果有关键词，按名称、城市或标签搜索；否则返回所有
+    if (keyword && keyword.trim()) {
+      where.OR = [
+        { name: { contains: keyword, mode: "insensitive" } },
+        { city: { contains: keyword, mode: "insensitive" } },
         { tags: { has: keyword } },
-      ],
-    };
+      ];
+    }
 
     if (city) {
-      where.city = { equals: city, mode: 'insensitive' };
+      where.city = { equals: city, mode: "insensitive" };
     }
 
     if (tags && tags.length > 0) {
@@ -89,7 +92,8 @@ export class SpotService {
         score: item.score ? Number(item.score) : null,
         thumbnail: item.images?.[0] || null,
         briefIntro: item.introduction
-          ? item.introduction.substring(0, 80) + (item.introduction.length > 80 ? '...' : '')
+          ? item.introduction.substring(0, 80) +
+            (item.introduction.length > 80 ? "..." : "")
           : null,
         isFavorited: userId ? favoriteSpotIds.has(item.id) : undefined,
       })),
@@ -121,7 +125,7 @@ export class SpotService {
       });
 
       if (!spot) {
-        throw new NotFoundException('景点不存在');
+        throw new NotFoundException("景点不存在");
       }
 
       spot.score = spot.score ? Number(spot.score) : null;
@@ -151,9 +155,11 @@ export class SpotService {
 
   async favoriteSpot(userId: string, spotId: string) {
     // 验证景点存在
-    const spot = await this.prisma.scenicSpot.findUnique({ where: { id: spotId } });
+    const spot = await this.prisma.scenicSpot.findUnique({
+      where: { id: spotId },
+    });
     if (!spot) {
-      throw new NotFoundException('景点不存在');
+      throw new NotFoundException("景点不存在");
     }
 
     await this.prisma.spotFavorite.upsert({
@@ -165,7 +171,7 @@ export class SpotService {
     // 失效缓存
     await this.invalidateFavoritesCache(userId);
 
-    return { success: true, message: '收藏成功' };
+    return { success: true, message: "收藏成功" };
   }
 
   async unfavoriteSpot(userId: string, spotId: string) {
@@ -176,7 +182,7 @@ export class SpotService {
     // 失效缓存
     await this.invalidateFavoritesCache(userId);
 
-    return { success: true, message: '已取消收藏' };
+    return { success: true, message: "已取消收藏" };
   }
 
   async getFavorites(userId: string, page = 1, pageSize = 20) {
@@ -184,7 +190,7 @@ export class SpotService {
       this.prisma.spotFavorite.count({ where: { userId } }),
       this.prisma.spotFavorite.findMany({
         where: { userId },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
@@ -213,7 +219,8 @@ export class SpotService {
         score: f.spot.score ? Number(f.spot.score) : null,
         thumbnail: f.spot.images?.[0] || null,
         briefIntro: f.spot.introduction
-          ? f.spot.introduction.substring(0, 80) + (f.spot.introduction.length > 80 ? '...' : '')
+          ? f.spot.introduction.substring(0, 80) +
+            (f.spot.introduction.length > 80 ? "..." : "")
           : null,
         isFavorited: true,
         favoritedAt: f.createdAt,
@@ -228,16 +235,18 @@ export class SpotService {
 
   async getReviews(spotId: string, page = 1, pageSize = 10) {
     // 验证景点存在
-    const spot = await this.prisma.scenicSpot.findUnique({ where: { id: spotId } });
+    const spot = await this.prisma.scenicSpot.findUnique({
+      where: { id: spotId },
+    });
     if (!spot) {
-      throw new NotFoundException('景点不存在');
+      throw new NotFoundException("景点不存在");
     }
 
     const [total, reviews] = await Promise.all([
-      this.prisma.spotReview.count({ where: { spotId, status: 'approved' } }),
+      this.prisma.spotReview.count({ where: { spotId, status: "approved" } }),
       this.prisma.spotReview.findMany({
-        where: { spotId, status: 'approved' },
-        orderBy: { createdAt: 'desc' },
+        where: { spotId, status: "approved" },
+        orderBy: { createdAt: "desc" },
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
@@ -271,17 +280,17 @@ export class SpotService {
 
   async getReviewSummary(spotId: string) {
     const [totalReviews, avgResult] = await Promise.all([
-      this.prisma.spotReview.count({ where: { spotId, status: 'approved' } }),
+      this.prisma.spotReview.count({ where: { spotId, status: "approved" } }),
       this.prisma.spotReview.aggregate({
-        where: { spotId, status: 'approved' },
+        where: { spotId, status: "approved" },
         _avg: { score: true },
       }),
     ]);
 
     // 获取热门评价片段（最多5条）
     const topReviews = await this.prisma.spotReview.findMany({
-      where: { spotId, status: 'approved' },
-      orderBy: { createdAt: 'desc' },
+      where: { spotId, status: "approved" },
+      orderBy: { createdAt: "desc" },
       take: 5,
       include: {
         user: {
@@ -292,11 +301,15 @@ export class SpotService {
 
     return {
       totalReviews,
-      averageScore: avgResult._avg.score ? Number(avgResult._avg.score.toFixed(1)) : null,
+      averageScore: avgResult._avg.score
+        ? Number(avgResult._avg.score.toFixed(1))
+        : null,
       topReviews: topReviews.map((r) => ({
         id: r.id,
         score: r.score,
-        content: r.content ? r.content.substring(0, 100) + (r.content.length > 100 ? '...' : '') : null,
+        content: r.content
+          ? r.content.substring(0, 100) + (r.content.length > 100 ? "..." : "")
+          : null,
         images: r.images?.slice(0, 3) || [],
         createdAt: r.createdAt,
         user: r.user,
@@ -306,23 +319,40 @@ export class SpotService {
 
   // ── 私有方法 ──
 
-  private buildOrderBy(sort?: SpotSortType): Prisma.ScenicSpotOrderByWithRelationInput[] {
+  private buildOrderBy(
+    sort?: SpotSortType,
+  ): Prisma.ScenicSpotOrderByWithRelationInput[] {
     switch (sort) {
       case SpotSortType.RATING:
-        return [{ score: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }];
+        return [
+          { score: { sort: "desc", nulls: "last" } },
+          { createdAt: "desc" },
+        ];
       case SpotSortType.POPULARITY:
-        return [{ score: { sort: 'desc', nulls: 'last' } }, { name: 'asc' }];
+        return [{ score: { sort: "desc", nulls: "last" } }, { name: "asc" }];
       case SpotSortType.COMPREHENSIVE:
       default:
-        return [{ score: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }];
+        return [
+          { score: { sort: "desc", nulls: "last" } },
+          { createdAt: "desc" },
+        ];
     }
   }
 
   private buildSearchCacheKey(dto: SearchSpotsDto): string {
     const hash = crypto
-      .createHash('md5')
-      .update(JSON.stringify({ k: dto.keyword, c: dto.city, t: dto.tags, s: dto.sort, p: dto.page, ps: dto.pageSize }))
-      .digest('hex');
+      .createHash("md5")
+      .update(
+        JSON.stringify({
+          k: dto.keyword,
+          c: dto.city,
+          t: dto.tags,
+          s: dto.sort,
+          p: dto.page,
+          ps: dto.pageSize,
+        }),
+      )
+      .digest("hex");
     return `spot:search:${hash}`;
   }
 
@@ -341,7 +371,7 @@ export class SpotService {
     try {
       const client = this.redisService.getClient();
       if (!client) return;
-      await client.set(key, JSON.stringify(data), 'EX', this.CACHE_TTL);
+      await client.set(key, JSON.stringify(data), "EX", this.CACHE_TTL);
     } catch (error) {
       this.logger.warn(`缓存写入失败: ${key}`, error);
     }

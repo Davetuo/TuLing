@@ -1,16 +1,25 @@
-import { IsString, IsOptional, IsArray, IsEnum, IsInt, Min, Max, IsNotEmpty } from 'class-validator';
-import { Transform, Type } from 'class-transformer';
+import {
+  IsString,
+  IsOptional,
+  IsArray,
+  IsEnum,
+  IsInt,
+  Min,
+  Max,
+  IsNotEmpty,
+} from "class-validator";
+import { Transform, Type } from "class-transformer";
 
 export enum SpotSortType {
-  COMPREHENSIVE = 'comprehensive',
-  RATING = 'rating',
-  POPULARITY = 'popularity',
+  COMPREHENSIVE = "comprehensive",
+  RATING = "rating",
+  POPULARITY = "popularity",
 }
 
 export class SearchSpotsDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty({ message: '请输入搜索关键词' })
-  keyword: string;
+  keyword?: string;
 
   @IsOptional()
   @IsString()
@@ -20,7 +29,7 @@ export class SearchSpotsDto {
   @IsArray()
   @IsString({ each: true })
   @Transform(({ value }) => {
-    if (typeof value === 'string') return [value];
+    if (typeof value === "string") return [value];
     return value;
   })
   tags?: string[];

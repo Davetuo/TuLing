@@ -4,140 +4,153 @@ meta:
 </route>
 
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { Search, Star, StarFilled, Location } from '@element-plus/icons-vue'
-import { searchSpots } from '@/shared/api/spots'
-import { useSpotStore } from '@/stores/spot'
-import { useAuthStore } from '@/stores/auth'
-import type { SpotListItem, SearchSpotsParams } from '@/shared/types/spots'
+import { ref, reactive, watch, onMounted } from "vue";
+import { useRouter } from "vue-router";
+import { ElMessage } from "element-plus";
+import { Search, Star, StarFilled, Location } from "@element-plus/icons-vue";
+import { searchSpots } from "@/shared/api/spots";
+import { useSpotStore } from "@/stores/spot";
+import { useAuthStore } from "@/stores/auth";
+import type { SpotListItem, SearchSpotsParams } from "@/shared/types/spots";
 
-const router = useRouter()
-const spotStore = useSpotStore()
-const authStore = useAuthStore()
+const router = useRouter();
+const spotStore = useSpotStore();
+const authStore = useAuthStore();
 
 // 搜索状态
-const keyword = ref('')
-const selectedCity = ref('')
-const selectedTags = ref<string[]>([])
-const selectedSort = ref<'comprehensive' | 'rating' | 'popularity'>('comprehensive')
-const currentPage = ref(1)
-const pageSize = 20
+const keyword = ref("");
+const selectedCity = ref("");
+const selectedTags = ref<string[]>([]);
+const selectedSort = ref<"comprehensive" | "rating" | "popularity">(
+  "comprehensive",
+);
+const currentPage = ref(1);
+const pageSize = 20;
 
 // 列表数据
-const spots = ref<SpotListItem[]>([])
-const total = ref(0)
-const totalPages = ref(0)
-const loading = ref(false)
-const hasSearched = ref(false)
-const networkError = ref(false)
+const spots = ref<SpotListItem[]>([]);
+const total = ref(0);
+const totalPages = ref(0);
+const loading = ref(false);
+const hasSearched = ref(false);
+const networkError = ref(false);
 
 // 可用标签
-const availableTags = ['亲子', '情侣', '小众', '免费', '夜景', '文化', '自然', '美食']
+const availableTags = [
+  "亲子",
+  "情侣",
+  "小众",
+  "免费",
+  "夜景",
+  "文化",
+  "自然",
+  "美食",
+];
 const sortOptions = [
-  { label: '综合', value: 'comprehensive' },
-  { label: '评分', value: 'rating' },
-  { label: '热度', value: 'popularity' },
-]
+  { label: "综合", value: "comprehensive" },
+  { label: "评分", value: "rating" },
+  { label: "热度", value: "popularity" },
+];
 
 // 搜索
 async function handleSearch(resetPage = true) {
-  if (!keyword.value.trim()) {
-    ElMessage.warning('请输入搜索关键词')
-    return
-  }
-
-  if (resetPage) currentPage.value = 1
-  loading.value = true
-  networkError.value = false
-  hasSearched.value = true
+  if (resetPage) currentPage.value = 1;
+  loading.value = true;
+  networkError.value = false;
+  hasSearched.value = true;
 
   const params: SearchSpotsParams = {
-    keyword: keyword.value.trim(),
+    ...(keyword.value.trim() && { keyword: keyword.value.trim() }),
     page: currentPage.value,
     pageSize,
     sort: selectedSort.value,
-  }
-  if (selectedCity.value) params.city = selectedCity.value
-  if (selectedTags.value.length > 0) params.tags = selectedTags.value
+  };
+  if (selectedCity.value) params.city = selectedCity.value;
+  if (selectedTags.value.length > 0) params.tags = selectedTags.value;
 
   try {
-    const { data } = await searchSpots(params)
-    spots.value = data.items
-    total.value = data.total
-    totalPages.value = data.totalPages
+    const { data } = await searchSpots(params);
+    spots.value = data.items;
+    total.value = data.total;
+    totalPages.value = data.totalPages;
 
     // 同步收藏状态到 store
     data.items.forEach((item) => {
       if (item.isFavorited !== undefined) {
-        spotStore.setFavoriteStatus(item.id, item.isFavorited)
+        spotStore.setFavoriteStatus(item.id, item.isFavorited);
       }
-    })
+    });
   } catch (error) {
-    networkError.value = true
-    spots.value = []
-    total.value = 0
+    networkError.value = true;
+    spots.value = [];
+    total.value = 0;
   } finally {
-    loading.value = false
+    loading.value = false;
   }
 }
 
+// 页面加载时自动获取所有景点
+onMounted(() => {
+  handleSearch();
+});
+
 // 分页
 function handlePageChange(page: number) {
-  currentPage.value = page
-  handleSearch(false)
-  window.scrollTo({ top: 0, behavior: 'smooth' })
+  currentPage.value = page;
+  handleSearch(false);
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 // 收藏切换
 async function handleToggleFavorite(spot: SpotListItem, event: Event) {
-  event.stopPropagation()
+  event.stopPropagation();
 
   if (!authStore.isLoggedIn) {
-    ElMessage.warning('请先登录')
-    router.push('/login')
-    return
+    ElMessage.warning("请先登录");
+    router.push("/login");
+    return;
   }
 
-  const currentStatus = spotStore.getFavoriteStatus(spot.id) ?? spot.isFavorited ?? false
-  const result = await spotStore.toggleFavorite(spot.id, currentStatus)
+  const currentStatus =
+    spotStore.getFavoriteStatus(spot.id) ?? spot.isFavorited ?? false;
+  const result = await spotStore.toggleFavorite(spot.id, currentStatus);
 
   if (result.success) {
-    spot.isFavorited = result.isFavorited
-    ElMessage.success(result.isFavorited ? '收藏成功' : '已取消收藏')
+    spot.isFavorited = result.isFavorited;
+    ElMessage.success(result.isFavorited ? "收藏成功" : "已取消收藏");
   } else {
-    ElMessage.error('操作失败，请重试')
+    ElMessage.error("操作失败，请重试");
   }
 }
 
 // 跳转详情
 function goToDetail(spotId: string) {
-  router.push({ path: `/spots/${spotId}` })
+  router.push({ path: `/spots/${spotId}` });
 }
 
 // 跳转收藏列表
 function goToFavorites() {
   if (!authStore.isLoggedIn) {
-    ElMessage.warning('请先登录')
-    router.push('/login')
-    return
+    ElMessage.warning("请先登录");
+    router.push("/login");
+    return;
   }
-  router.push('/spots/favorites')
+  router.push("/spots/favorites");
 }
 
 // 键盘回车搜索
 function handleKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter') handleSearch()
+  if (e.key === "Enter") handleSearch();
 }
 
 // 获取收藏状态
 function isFavorited(spot: SpotListItem): boolean {
-  return spotStore.getFavoriteStatus(spot.id) ?? spot.isFavorited ?? false
+  return spotStore.getFavoriteStatus(spot.id) ?? spot.isFavorited ?? false;
 }
 
 // 默认图片
-const defaultImage = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMjAiIGhlaWdodD0iMjAwIiB2aWV3Qm94PSIwIDAgMzIwIDIwMCI+PHJlY3Qgd2lkdGg9IjMyMCIgaGVpZ2h0PSIyMDAiIGZpbGw9IiNmNWY3ZmEiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjE2IiBmaWxsPSIjYzBjNGNjIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+5pqC5peg5Zu+54mHPC90ZXh0Pjwvc3ZnPg=='
+const defaultImage =
+  "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMjAiIGhlaWdodD0iMjAwIiB2aWV3Qm94PSIwIDAgMzIwIDIwMCI+PHJlY3Qgd2lkdGg9IjMyMCIgaGVpZ2h0PSIyMDAiIGZpbGw9IiNmNWY3ZmEiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjE2IiBmaWxsPSIjYzBjNGNjIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+5pqC5peg5Zu+54mHPC90ZXh0Pjwvc3ZnPg==";
 </script>
 
 <template>
@@ -146,11 +159,7 @@ const defaultImage = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53
     <div class="search-header">
       <div class="page-header">
         <h1 class="page-title">景点探索</h1>
-        <el-button
-          type="primary"
-          plain
-          @click="goToFavorites"
-        >
+        <el-button type="primary" plain @click="goToFavorites">
           <el-icon><StarFilled /></el-icon>
           我的收藏
         </el-button>
@@ -180,10 +189,12 @@ const defaultImage = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53
             v-for="tag in availableTags"
             :key="tag"
             :checked="selectedTags.includes(tag)"
-            @change="(checked: boolean) => {
-              if (checked) selectedTags.push(tag)
-              else selectedTags = selectedTags.filter(t => t !== tag)
-            }"
+            @change="
+              (checked: boolean) => {
+                if (checked) selectedTags.push(tag);
+                else selectedTags = selectedTags.filter((t) => t !== tag);
+              }
+            "
           >
             {{ tag }}
           </el-check-tag>
@@ -255,7 +266,12 @@ const defaultImage = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53
               {{ spot.city }}
             </span>
             <span v-if="spot.score" class="spot-card__score">
-              <el-rate :model-value="spot.score" disabled show-score score-template="{value}" />
+              <el-rate
+                :model-value="spot.score"
+                disabled
+                show-score
+                score-template="{value}"
+              />
             </span>
           </div>
           <div v-if="spot.tags.length" class="spot-card__tags">
@@ -269,7 +285,9 @@ const defaultImage = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53
               {{ tag }}
             </el-tag>
           </div>
-          <p v-if="spot.briefIntro" class="spot-card__intro">{{ spot.briefIntro }}</p>
+          <p v-if="spot.briefIntro" class="spot-card__intro">
+            {{ spot.briefIntro }}
+          </p>
         </div>
       </div>
 
@@ -295,8 +313,8 @@ const defaultImage = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53
 </template>
 
 <script lang="ts">
-import { Warning } from '@element-plus/icons-vue'
-export default { components: { Warning } }
+import { Warning } from "@element-plus/icons-vue";
+export default { components: { Warning } };
 </script>
 
 <style scoped>
@@ -361,7 +379,9 @@ export default { components: { Warning } }
   border: 1px solid #ebeef5;
   border-radius: 8px;
   cursor: pointer;
-  transition: box-shadow 0.2s, border-color 0.2s;
+  transition:
+    box-shadow 0.2s,
+    border-color 0.2s;
 }
 
 .spot-card:hover {

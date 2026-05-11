@@ -34,7 +34,7 @@ Write-Info "Starting $script:ContainerRuntimeName containers (PostgreSQL + Redis
 Set-Location $ProjectRoot
 $containersUp = Invoke-Compose ps --format "{{.Status}}" 2>$null | Select-String "Up"
 if (-not $containersUp) {
-    Invoke-Compose up -d
+    Invoke-Compose -Arguments @("up", "-d")
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Exit "$script:ContainerRuntimeName container startup failed"
     }
