@@ -2,10 +2,13 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { join } from 'path';
+import { mkdirSync } from 'fs';
 import { execSync } from 'child_process';
 import { createServer } from 'net';
 import fastifyCookie from '@fastify/cookie';
 import fastifyCors from '@fastify/cors';
+import fastifyMultipart from '@fastify/multipart';
+import fastifyStatic from '@fastify/static';
 import { AppModule } from './app.module';
 
 /**
@@ -107,6 +110,22 @@ async function bootstrap() {
     credentials: true,
   });
 
+  // 注册 multipart：用于图片纪念墙上传
+  await app.register(fastifyMultipart, {
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB
+      files: 1,
+    },
+  });
+
+  // 暴露 /uploads/* 用于访问用户上传的图片
+  const uploadsRoot = join(__dirname, '..', 'uploads');
+  mkdirSync(uploadsRoot, { recursive: true });
+  await app.register(fastifyStatic, {
+    root: uploadsRoot,
+    prefix: '/uploads/',
+  });
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -122,13 +141,13 @@ async function bootstrap() {
   await ensurePortAvailable(port);
 
   if (process.env.NODE_ENV === 'production') {
-    const fastifyStatic = require('@fastify/static');
     const clientDistPath = join(__dirname, '../../client/dist');
 
     await app.register(fastifyStatic, {
       root: clientDistPath,
       prefix: '/',
       index: ['index.html'],
+      decorateReply: false,
     });
 
     // Set SPA fallback BEFORE listen(), then monkey-patch to prevent

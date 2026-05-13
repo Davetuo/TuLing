@@ -1,23 +1,105 @@
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../prisma/prisma.service";
 import { RedisService } from "../redis/redis.service";
 import { SearchSpotsDto, SpotSortType } from "./dto";
 import { Prisma } from "@prisma/client";
 import * as crypto from "crypto";
 
+// ─── 高德 POI 响应类型 ──────────────────────────────────────────
+interface AmapPoi {
+  id?: string;
+  name?: string;
+  type?: string;
+  address?: unknown;
+  location?: string;
+  tel?: unknown;
+  pname?: string;
+  cityname?: string;
+  adname?: string;
+  biz_ext?: {
+    rating?: unknown;
+    cost?: unknown;
+    open_time?: unknown;
+  };
+  photos?: Array<{ url?: string; title?: unknown }>;
+}
+
+interface AmapPlaceResp {
+  status?: string;
+  info?: string;
+  infocode?: string;
+  pois?: AmapPoi[];
+}
+
 @Injectable()
 export class SpotService {
   private readonly logger = new Logger(SpotService.name);
   private readonly CACHE_TTL = 600; // 10 分钟
+  private readonly AMAP_DEDUP_TTL = 300; // 5 分钟内同 keyword 不重复调高德
 
   constructor(
     private prisma: PrismaService,
     private redisService: RedisService,
+    private config: ConfigService,
   ) {}
 
-  // ── 景点搜索 ──
+  // ── 景点搜索（含高德兜底）──
 
   async searchSpots(dto: SearchSpotsDto, userId?: string) {
+    let result = await this.queryLocalSpots(dto, userId);
+
+    const keyword = dto.keyword?.trim();
+    if (result.items.length === 0 && keyword) {
+      const { processed } = await this.fallbackToAmap(keyword, dto.city);
+      // 只要高德处理过 POI（新增或更新已存在），都失效缓存并重查本地：
+      // 即便 inserted=0（20 条全是 update），之前缓存的空结果会让用户看不到这些记录
+      if (processed > 0) {
+        await this.invalidateSearchCache(dto);
+        result = await this.queryLocalSpots(dto, userId);
+
+        // 仍无结果时,用简化关键词再查一次(去掉括号及内部门店后缀)
+        // 例如 "财大小吃街(政院小区店)" 简化为 "财大小吃街"
+        let simplified = keyword;
+        if (result.items.length === 0) {
+          simplified = this.simplifyKeyword(keyword);
+          if (simplified && simplified !== keyword) {
+            result = await this.queryLocalSpots(
+              { ...dto, keyword: simplified },
+              userId,
+            );
+          }
+        }
+
+        // 还无结果且有城市约束时,降级为前 2 字模糊匹配
+        // 例如 "万松园" 找不到时,用 "万松" 命中 "万松观"、"万松文化园" 等同片区景点
+        // 要求 city 存在,避免无约束的短词检索过于发散
+        if (
+          result.items.length === 0 &&
+          dto.city &&
+          simplified.length >= 3
+        ) {
+          const prefix = simplified.slice(0, 2);
+          result = await this.queryLocalSpots(
+            { ...dto, keyword: prefix },
+            userId,
+          );
+        }
+      }
+    }
+
+    return result;
+  }
+
+  private simplifyKeyword(keyword: string): string {
+    return keyword
+      .replace(/\(.*?\)/g, "")
+      .replace(/（.*?）/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  private async queryLocalSpots(dto: SearchSpotsDto, userId?: string) {
     const { keyword, city, tags, sort, page = 1, pageSize = 20 } = dto;
 
     // 尝试从缓存获取
@@ -40,7 +122,9 @@ export class SpotService {
     }
 
     if (city) {
-      where.city = { equals: city, mode: "insensitive" };
+      // 用 contains 而非 equals: 高德入库的城市常带后缀(如"武汉市"),
+      // 前端传过来的是短形式(如"武汉"),用 contains 能兼容两端
+      where.city = { contains: city, mode: "insensitive" };
     }
 
     if (tags && tags.length > 0) {
@@ -317,6 +401,198 @@ export class SpotService {
     };
   }
 
+  // ── 创建评价 ──
+
+  async createReview(
+    spotId: string,
+    userId: string,
+    score: number,
+    content?: string,
+  ) {
+    const spot = await this.prisma.scenicSpot.findUnique({
+      where: { id: spotId },
+      select: { id: true },
+    });
+    if (!spot) {
+      throw new NotFoundException("景点不存在");
+    }
+
+    const review = await this.prisma.spotReview.create({
+      data: {
+        spotId,
+        userId,
+        score,
+        content: content?.trim() || null,
+        images: [],
+        status: "approved",
+      },
+      include: {
+        user: { select: { id: true, nickname: true, avatarUrl: true } },
+      },
+    });
+
+    // 失效该景点详情缓存（详情里包含 reviewSummary）
+    try {
+      const client = this.redisService.getClient();
+      if (client) await client.del(`spot:detail:${spotId}`);
+    } catch (error) {
+      this.logger.warn(`详情缓存失效失败: ${spotId}`, error);
+    }
+
+    return {
+      id: review.id,
+      score: review.score,
+      content: review.content,
+      images: review.images,
+      createdAt: review.createdAt,
+      user: review.user,
+    };
+  }
+
+  // ── 我的评价 ──
+
+  async getMyReviews(userId: string, page = 1, pageSize = 20) {
+    const safePage = Math.max(1, page);
+    const safePageSize = Math.min(50, Math.max(1, pageSize));
+
+    const [total, reviews] = await Promise.all([
+      this.prisma.spotReview.count({ where: { userId } }),
+      this.prisma.spotReview.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        skip: (safePage - 1) * safePageSize,
+        take: safePageSize,
+        include: {
+          spot: {
+            select: {
+              id: true,
+              name: true,
+              city: true,
+              images: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      items: reviews.map((r) => ({
+        id: r.id,
+        score: r.score,
+        content: r.content,
+        images: r.images,
+        status: r.status,
+        createdAt: r.createdAt,
+        spot: {
+          id: r.spot.id,
+          name: r.spot.name,
+          city: r.spot.city,
+          thumbnail: r.spot.images?.[0] || null,
+        },
+      })),
+      total,
+      totalPages: Math.ceil(total / safePageSize),
+      currentPage: safePage,
+    };
+  }
+
+  async deleteMyReview(userId: string, reviewId: string) {
+    const review = await this.prisma.spotReview.findUnique({
+      where: { id: reviewId },
+      select: { userId: true, spotId: true },
+    });
+    if (!review) {
+      throw new NotFoundException("评价不存在");
+    }
+    if (review.userId !== userId) {
+      // 沿用项目里的语义：不存在 / 无权 一律返回 NotFound 不暴露归属
+      throw new NotFoundException("评价不存在");
+    }
+    await this.prisma.spotReview.delete({ where: { id: reviewId } });
+    try {
+      const client = this.redisService.getClient();
+      if (client) await client.del(`spot:detail:${review.spotId}`);
+    } catch (error) {
+      this.logger.warn(`详情缓存失效失败: ${review.spotId}`, error);
+    }
+    return { success: true };
+  }
+
+  // ── 我收藏景点的最新评价（别人对我收藏景点写的）──
+
+  async getFavoritesReviews(userId: string, page = 1, pageSize = 20) {
+    const safePage = Math.max(1, page);
+    const safePageSize = Math.min(50, Math.max(1, pageSize));
+
+    const favorites = await this.prisma.spotFavorite.findMany({
+      where: { userId },
+      select: { spotId: true },
+    });
+    const spotIds = favorites.map((f) => f.spotId);
+
+    if (spotIds.length === 0) {
+      return {
+        items: [],
+        total: 0,
+        totalPages: 0,
+        currentPage: safePage,
+      };
+    }
+
+    const [total, reviews] = await Promise.all([
+      this.prisma.spotReview.count({
+        where: {
+          spotId: { in: spotIds },
+          status: "approved",
+          userId: { not: userId }, // 排除自己写的，避免和"我的评价"重复
+        },
+      }),
+      this.prisma.spotReview.findMany({
+        where: {
+          spotId: { in: spotIds },
+          status: "approved",
+          userId: { not: userId },
+        },
+        orderBy: { createdAt: "desc" },
+        skip: (safePage - 1) * safePageSize,
+        take: safePageSize,
+        include: {
+          spot: {
+            select: {
+              id: true,
+              name: true,
+              city: true,
+              images: true,
+            },
+          },
+          user: {
+            select: { id: true, nickname: true, avatarUrl: true },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      items: reviews.map((r) => ({
+        id: r.id,
+        score: r.score,
+        content: r.content,
+        images: r.images,
+        createdAt: r.createdAt,
+        user: r.user,
+        spot: {
+          id: r.spot.id,
+          name: r.spot.name,
+          city: r.spot.city,
+          thumbnail: r.spot.images?.[0] || null,
+        },
+      })),
+      total,
+      totalPages: Math.ceil(total / safePageSize),
+      currentPage: safePage,
+    };
+  }
+
   // ── 私有方法 ──
 
   private buildOrderBy(
@@ -330,6 +606,12 @@ export class SpotService {
         ];
       case SpotSortType.POPULARITY:
         return [{ score: { sort: "desc", nulls: "last" } }, { name: "asc" }];
+      case SpotSortType.REVIEW_COUNT:
+        // 按评价数倒序；评价数相同时回退到评分
+        return [
+          { reviews: { _count: "desc" } },
+          { score: { sort: "desc", nulls: "last" } },
+        ];
       case SpotSortType.COMPREHENSIVE:
       default:
         return [
@@ -367,11 +649,15 @@ export class SpotService {
     }
   }
 
-  private async setCache(key: string, data: any): Promise<void> {
+  private async setCache(
+    key: string,
+    data: any,
+    ttl: number = this.CACHE_TTL,
+  ): Promise<void> {
     try {
       const client = this.redisService.getClient();
       if (!client) return;
-      await client.set(key, JSON.stringify(data), "EX", this.CACHE_TTL);
+      await client.set(key, JSON.stringify(data), "EX", ttl);
     } catch (error) {
       this.logger.warn(`缓存写入失败: ${key}`, error);
     }
@@ -389,5 +675,255 @@ export class SpotService {
     } catch (error) {
       this.logger.warn(`收藏缓存失效失败: ${userId}`, error);
     }
+  }
+
+  private async invalidateSearchCache(dto: SearchSpotsDto): Promise<void> {
+    try {
+      const client = this.redisService.getClient();
+      if (!client) return;
+      await client.del(this.buildSearchCacheKey(dto));
+    } catch (error) {
+      this.logger.warn(`搜索缓存失效失败`, error);
+    }
+  }
+
+  // ─── 高德实时兜底 ───────────────────────────────────────────
+
+  private async fallbackToAmap(
+    keyword: string,
+    city?: string,
+  ): Promise<{ processed: number; inserted: number }> {
+    const key = this.config.get<string>("AMAP_WEB_KEY");
+    if (!key) {
+      this.logger.warn("AMAP_WEB_KEY 未配置，跳过高德兜底");
+      return { processed: 0, inserted: 0 };
+    }
+
+    // 5 分钟内同 keyword+city 不重复调用高德
+    const dedupKey = `spot:amap-live:${keyword}:${city || "all"}`;
+    if (await this.getCache(dedupKey)) {
+      return { processed: 0, inserted: 0 };
+    }
+
+    this.logger.log(
+      `高德兜底: keyword="${keyword}"${city ? ` city="${city}"` : ""}`,
+    );
+
+    const pois = await this.fetchAmapPois(keyword, city);
+    // 即使无结果也设标记，避免 5 分钟内反复打高德
+    await this.setCache(dedupKey, true, this.AMAP_DEDUP_TTL);
+
+    if (pois.length === 0) return { processed: 0, inserted: 0 };
+
+    let inserted = 0;
+    for (const poi of pois) {
+      if (await this.upsertAmapPoi(poi, city)) inserted++;
+    }
+    this.logger.log(`高德兜底入库: 新增 ${inserted} / 处理 ${pois.length}`);
+    return { processed: pois.length, inserted };
+  }
+
+  private async fetchAmapPois(
+    keyword: string,
+    city?: string,
+  ): Promise<AmapPoi[]> {
+    const key = this.config.get<string>("AMAP_WEB_KEY")!;
+    const url = new URL("https://restapi.amap.com/v3/place/text");
+    url.searchParams.set("key", key);
+    url.searchParams.set("keywords", keyword);
+    // 限定为景点类大类：风景名胜/公园/博物馆/纪念馆/寺庙/古迹/文化设施/高校
+    // 不传 types 时高德会返回银行/酒店/产业园等非景点 POI
+    url.searchParams.set(
+      "types",
+      "110000|110100|110200|110203|110105|141200|141201",
+    );
+    if (city) {
+      url.searchParams.set("city", city);
+      url.searchParams.set("citylimit", "true");
+    }
+    url.searchParams.set("extensions", "all");
+    url.searchParams.set("offset", "25");
+    url.searchParams.set("page", "1");
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok) {
+        this.logger.warn(`高德 HTTP ${res.status}`);
+        return [];
+      }
+      const data = (await res.json()) as AmapPlaceResp;
+      if (data.status !== "1") {
+        this.logger.warn(`高德返回错误: ${data.info} (${data.infocode})`);
+        return [];
+      }
+      return (data.pois || []).filter((p) => this.isValidAmapPoi(p));
+    } catch (err) {
+      this.logger.warn(
+        `高德请求失败: ${err instanceof Error ? err.message : err}`,
+      );
+      return [];
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async upsertAmapPoi(
+    poi: AmapPoi,
+    fallbackCity?: string,
+  ): Promise<boolean> {
+    const name = this.pickText(poi.name);
+    const address = this.pickText(poi.address);
+    if (!name || !address) return false;
+
+    const city =
+      this.pickText(poi.cityname) ||
+      this.pickText(poi.pname) ||
+      fallbackCity ||
+      "";
+
+    const adname = this.pickText(poi.adname) || "";
+    const fullAddress =
+      adname && !address.startsWith(adname) ? `${adname}${address}` : address;
+
+    const data = {
+      name,
+      city,
+      address: fullAddress,
+      tags: this.pickAmapTags(poi),
+      score: this.pickAmapScore(poi),
+      openTime: this.pickText(poi.biz_ext?.open_time) || null,
+      images: this.pickAmapImages(poi),
+      introduction: null,
+      transport: null,
+      ticketInfo: this.pickAmapTicketInfo(poi),
+      phone: this.pickText(poi.tel) || null,
+      suggestedDuration: null,
+      source: "amap-live",
+    };
+
+    const existing = await this.prisma.scenicSpot.findFirst({
+      where: { name, city },
+      select: { id: true },
+    });
+
+    if (existing) {
+      await this.prisma.scenicSpot.update({
+        where: { id: existing.id },
+        data,
+      });
+      return false;
+    } else {
+      await this.prisma.scenicSpot.create({ data });
+      return true;
+    }
+  }
+
+  private isValidAmapPoi(poi: AmapPoi): boolean {
+    const name = this.pickText(poi.name);
+    const address = this.pickText(poi.address);
+    if (!name || !address) return false;
+
+    const location = this.pickText(poi.location);
+    if (!location || !/^-?\d+\.?\d*,-?\d+\.?\d*$/.test(location)) return false;
+
+    // 名称黑名单：兜底过滤掉混进结果的非景点 POI
+    // （即便指定了 types，高德仍可能返回少量边界 POI，如「XX银行支行」位于商业街类目下）
+    const nameBlacklist = [
+      "银行",
+      "支行",
+      "酒店",
+      "宾馆",
+      "民宿",
+      "公寓",
+      "停车场",
+      "售票处",
+      "服务区",
+      "门店",
+      "分店",
+      "支店",
+      "产业园",
+      "开发区",
+      "工业园",
+      "写字楼",
+      "办公楼",
+      "公司",
+      "集团",
+      "分公司",
+      "支公司",
+      "营业厅",
+      "营业部",
+      "派出所",
+      "石化",
+      "加油站",
+      "便利店",
+      "超市",
+      "购物中心",
+      "幼儿园",
+      "小学",
+      "中学",
+      "招生",
+      "就业处",
+    ];
+    if (nameBlacklist.some((b) => name.includes(b))) return false;
+
+    return true;
+  }
+
+  // 高德很多字段为空时返回 [] 而非 null/空串，统一为 undefined
+  private pickText(v: unknown): string | undefined {
+    if (v == null || Array.isArray(v)) return undefined;
+    const s = String(v).trim();
+    return s ? s : undefined;
+  }
+
+  private pickAmapTags(poi: AmapPoi): string[] {
+    const tags = new Set<string>(["景点"]);
+    const type = this.pickText(poi.type) || "";
+    if (type.includes("博物馆") || type.includes("纪念馆")) {
+      tags.add("文化");
+      tags.add("亲子");
+    }
+    if (type.includes("风景")) tags.add("自然");
+    if (type.includes("公园")) {
+      tags.add("免费");
+      tags.add("自然");
+    }
+    if (
+      type.includes("宗教") ||
+      type.includes("寺") ||
+      type.includes("庙") ||
+      type.includes("观")
+    ) {
+      tags.add("文化");
+    }
+    if (type.includes("夜市") || type.includes("步行街")) {
+      tags.add("美食");
+      tags.add("夜景");
+    }
+    return Array.from(tags);
+  }
+
+  private pickAmapImages(poi: AmapPoi): string[] {
+    return (poi.photos || [])
+      .map((p) => p.url)
+      .filter((u): u is string => typeof u === "string" && u.startsWith("http"))
+      .slice(0, 5);
+  }
+
+  private pickAmapScore(poi: AmapPoi): number | null {
+    const raw = this.pickText(poi.biz_ext?.rating);
+    if (!raw) return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return Math.min(5, Math.max(0, Number(n.toFixed(1))));
+  }
+
+  private pickAmapTicketInfo(poi: AmapPoi): string | null {
+    const cost = this.pickText(poi.biz_ext?.cost);
+    if (!cost) return null;
+    if (cost === "0" || cost === "免费") return "免费";
+    return `参考门票 ¥${cost}`;
   }
 }

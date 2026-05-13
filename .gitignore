@@ -46,3 +46,6 @@ scripts/.pids/
 
 # ── OpenGuard ──
 openguard/
+
+# ── 用户上传的图片纪念墙 ──
+server/uploads/

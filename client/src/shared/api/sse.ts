@@ -1,9 +1,10 @@
-import type { StreamEvent } from '@/shared/types/chat'
+import type { StreamEvent, PlaceMarker } from '@/shared/types/chat'
 
 export interface SSEStreamOptions {
   onChunk?: (content: string) => void
   onDone?: (event: StreamEvent) => void
   onError?: (message: string, event?: StreamEvent) => void
+  onPlaces?: (places: PlaceMarker[], event: StreamEvent) => void
   signal?: AbortSignal
 }
 
@@ -62,6 +63,11 @@ export function streamChat(
             switch (event.type) {
               case 'chunk':
                 if (event.content) options.onChunk?.(event.content)
+                break
+              case 'places':
+                if (event.places && event.places.length > 0) {
+                  options.onPlaces?.(event.places, event)
+                }
                 break
               case 'done':
                 options.onDone?.(event)

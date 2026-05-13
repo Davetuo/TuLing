@@ -64,6 +64,42 @@ export interface SpotReview {
   };
 }
 
+// 我写过的评价（带景点信息回链）
+export interface MyReviewItem {
+  id: string;
+  score: number;
+  content: string | null;
+  images: string[];
+  status: string;
+  createdAt: string;
+  spot: {
+    id: string;
+    name: string;
+    city: string;
+    thumbnail: string | null;
+  };
+}
+
+// 我收藏景点上别人的评价（个人动态流）
+export interface FavoritesReviewItem {
+  id: string;
+  score: number;
+  content: string | null;
+  images: string[];
+  createdAt: string;
+  user: {
+    id: string;
+    nickname: string;
+    avatarUrl: string | null;
+  };
+  spot: {
+    id: string;
+    name: string;
+    city: string;
+    thumbnail: string | null;
+  };
+}
+
 export interface PaginatedResponse<T> {
   items: T[];
   total: number;
@@ -75,7 +111,7 @@ export interface SearchSpotsParams {
   keyword?: string;
   city?: string;
   tags?: string[];
-  sort?: "comprehensive" | "rating" | "popularity";
+  sort?: "comprehensive" | "rating" | "popularity" | "review_count";
   page?: number;
   pageSize?: number;
 }

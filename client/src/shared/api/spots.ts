@@ -5,6 +5,8 @@ import type {
   SpotListItem,
   SpotDetail,
   SpotReview,
+  MyReviewItem,
+  FavoritesReviewItem,
 } from '../types/spots'
 
 // 搜索景点
@@ -39,4 +41,32 @@ export function getSpotReviews(spotId: string, page = 1, pageSize = 10) {
   return apiClient.get<PaginatedResponse<SpotReview>>(`/spots/${spotId}/reviews`, {
     params: { page, pageSize },
   })
+}
+
+// 提交景点评价
+export function createSpotReview(
+  spotId: string,
+  data: { score: number; content?: string },
+) {
+  return apiClient.post<SpotReview>(`/spots/${spotId}/reviews`, data)
+}
+
+// 我写过的评价
+export function getMyReviews(page = 1, pageSize = 20) {
+  return apiClient.get<PaginatedResponse<MyReviewItem>>('/spots/my-reviews', {
+    params: { page, pageSize },
+  })
+}
+
+// 删除我的某条评价
+export function deleteMyReview(reviewId: string) {
+  return apiClient.delete<{ success: boolean }>(`/spots/my-reviews/${reviewId}`)
+}
+
+// 我收藏景点上别人的新评价（个人动态流）
+export function getFavoritesReviews(page = 1, pageSize = 20) {
+  return apiClient.get<PaginatedResponse<FavoritesReviewItem>>(
+    '/spots/favorites-reviews',
+    { params: { page, pageSize } },
+  )
 }

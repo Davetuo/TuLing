@@ -1,0 +1,206 @@
+/* ──────────────────────────────────────────────────────────
+   途灵 设计令牌 (Design tokens)
+   颜色、阴影、圆角、间距 — 用 CSS 变量统一全站观感
+   ────────────────────────────────────────────────────────── */
+
+:root {
+  /* 主色：紫蓝渐变 */
+  --tl-primary: #6366f1;
+  --tl-primary-hover: #4f46e5;
+  --tl-primary-soft: #eef2ff;
+  --tl-primary-from: #7c83ff;
+  --tl-primary-to: #5ab3ff;
+  --tl-gradient-primary: linear-gradient(135deg, #7c83ff 0%, #5ab3ff 100%);
+  --tl-gradient-text: linear-gradient(90deg, #7c83ff 0%, #5ab3ff 50%, #38bdf8 100%);
+
+  /* 辅助色 */
+  --tl-success: #14b8a6;
+  --tl-success-soft: #ccfbf1;
+  --tl-warning: #f97316;
+  --tl-warning-soft: #ffedd5;
+  --tl-danger: #f43f5e;
+  --tl-danger-soft: #ffe4e6;
+  --tl-purple: #8b5cf6;
+  --tl-purple-soft: #ede9fe;
+  --tl-pink: #ec4899;
+  --tl-pink-soft: #fce7f3;
+
+  /* 中性灰阶 */
+  --tl-text-1: #0f172a;
+  --tl-text-2: #1e293b;
+  --tl-text-3: #475569;
+  --tl-text-4: #64748b;
+  --tl-text-5: #94a3b8;
+  --tl-text-placeholder: #cbd5e1;
+
+  --tl-border: #e2e8f0;
+  --tl-border-soft: #f1f5f9;
+  --tl-bg-page: #f6f8fc;
+  --tl-bg-card: #ffffff;
+  --tl-bg-soft: #f8fafc;
+  --tl-bg-mute: #f1f5f9;
+
+  /* 圆角 */
+  --tl-radius-sm: 8px;
+  --tl-radius-md: 12px;
+  --tl-radius-lg: 16px;
+  --tl-radius-xl: 20px;
+  --tl-radius-2xl: 24px;
+  --tl-radius-pill: 999px;
+
+  /* 阴影 */
+  --tl-shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.04);
+  --tl-shadow-md: 0 8px 30px rgba(15, 23, 42, 0.06);
+  --tl-shadow-lg: 0 16px 48px rgba(15, 23, 42, 0.1);
+  --tl-shadow-primary: 0 10px 24px rgba(112, 124, 255, 0.32);
+
+  /* 过渡 */
+  --tl-tx: 0.2s ease;
+}
+
+/* ──────────────────────────────────────────────────────────
+   全局基础
+   ────────────────────────────────────────────────────────── */
+
+html,
+body {
+  background: var(--tl-bg-page);
+  color: var(--tl-text-2);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+    "Helvetica Neue", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* 默认滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ──────────────────────────────────────────────────────────
+   Element Plus 全局覆盖（仅一些视觉细节，不动结构）
+   ────────────────────────────────────────────────────────── */
+
+/* 主按钮渐变 */
+.el-button--primary:not(.is-text):not(.is-link):not(.is-plain) {
+  background: var(--tl-gradient-primary);
+  border: none;
+  box-shadow: 0 6px 16px rgba(112, 124, 255, 0.28);
+  transition:
+    transform var(--tl-tx),
+    box-shadow var(--tl-tx);
+}
+.el-button--primary:not(.is-text):not(.is-link):not(.is-plain):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(112, 124, 255, 0.38);
+  background: linear-gradient(135deg, #6a72ff 0%, #4aa8ff 100%);
+}
+
+/* 输入框圆润 */
+.el-input__wrapper {
+  border-radius: 10px;
+}
+
+/* 卡片圆润 */
+.el-card {
+  border-radius: var(--tl-radius-lg);
+  border-color: var(--tl-border-soft);
+}
+
+/* 标签圆润 */
+.el-tag {
+  border-radius: 6px;
+}
+
+/* CheckTag 选中态采用主色 */
+.el-check-tag.is-checked {
+  background-color: var(--tl-primary-soft) !important;
+  color: var(--tl-primary) !important;
+  border: 1px solid #c7d2fe !important;
+}
+
+/* 分页按钮 */
+.el-pagination.is-background .el-pager li.is-active {
+  background: var(--tl-gradient-primary);
+  border-radius: 8px;
+}
+
+/* 评分黄色更柔和 */
+.el-rate__icon {
+  color: #fbbf24 !important;
+}
+
+/* ──────────────────────────────────────────────────────────
+   通用工具类
+   ────────────────────────────────────────────────────────── */
+
+.tl-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 28px 24px 48px;
+}
+
+.tl-page--wide {
+  max-width: 1440px;
+}
+
+.tl-page--narrow {
+  max-width: 900px;
+}
+
+.tl-card {
+  background: var(--tl-bg-card);
+  border-radius: var(--tl-radius-xl);
+  box-shadow: var(--tl-shadow-md);
+  padding: 24px;
+}
+
+.tl-section-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--tl-text-2);
+  margin: 0 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tl-section-title::before {
+  content: "";
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--tl-gradient-primary);
+}
+
+.tl-grad-text {
+  background: var(--tl-gradient-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.tl-link {
+  color: var(--tl-primary);
+  text-decoration: none;
+  cursor: pointer;
+}
+.tl-link:hover {
+  color: var(--tl-primary-hover);
+}

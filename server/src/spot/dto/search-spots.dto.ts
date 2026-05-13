@@ -14,6 +14,7 @@ export enum SpotSortType {
   COMPREHENSIVE = "comprehensive",
   RATING = "rating",
   POPULARITY = "popularity",
+  REVIEW_COUNT = "review_count",
 }
 
 export class SearchSpotsDto {

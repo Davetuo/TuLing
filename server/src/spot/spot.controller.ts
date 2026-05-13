@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Delete,
+  Body,
   Param,
   Query,
   ParseUUIDPipe,
@@ -10,7 +11,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { SpotService } from './spot.service';
-import { SearchSpotsDto, SpotReviewListDto } from './dto';
+import { SearchSpotsDto, SpotReviewListDto, CreateReviewDto } from './dto';
 import { CurrentUser, JwtPayload } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
 
@@ -41,6 +42,52 @@ export class SpotController {
     @Query('pageSize') pageSize?: string,
   ) {
     return this.spotService.getFavorites(
+      user.sub,
+      page ? parseInt(page, 10) : 1,
+      pageSize ? parseInt(pageSize, 10) : 20,
+    );
+  }
+
+  /**
+   * 我写过的评价列表 - 需登录
+   * 注意：此路由必须在 :id 路由之前定义
+   */
+  @Get('my-reviews')
+  async getMyReviews(
+    @CurrentUser() user: JwtPayload,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.spotService.getMyReviews(
+      user.sub,
+      page ? parseInt(page, 10) : 1,
+      pageSize ? parseInt(pageSize, 10) : 20,
+    );
+  }
+
+  /**
+   * 删除我自己的评价 - 需登录
+   * 注意：此路由必须在 :id 路由之前定义
+   */
+  @Delete('my-reviews/:reviewId')
+  async deleteMyReview(
+    @CurrentUser() user: JwtPayload,
+    @Param('reviewId', ParseUUIDPipe) reviewId: string,
+  ) {
+    return this.spotService.deleteMyReview(user.sub, reviewId);
+  }
+
+  /**
+   * 我收藏景点上的别人评价（动态流）- 需登录
+   * 注意：此路由必须在 :id 路由之前定义
+   */
+  @Get('favorites-reviews')
+  async getFavoritesReviews(
+    @CurrentUser() user: JwtPayload,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.spotService.getFavoritesReviews(
       user.sub,
       page ? parseInt(page, 10) : 1,
       pageSize ? parseInt(pageSize, 10) : 20,
@@ -92,5 +139,18 @@ export class SpotController {
     @Query() dto: SpotReviewListDto,
   ) {
     return this.spotService.getReviews(id, dto.page, dto.pageSize);
+  }
+
+  /**
+   * 提交评价 - 需登录
+   */
+  @Post(':id/reviews')
+  @HttpCode(HttpStatus.CREATED)
+  async createReview(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: CreateReviewDto,
+  ) {
+    return this.spotService.createReview(id, user.sub, dto.score, dto.content);
   }
 }

@@ -1,7 +1,7 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { ProviderService } from '../provider/provider.service';
-import { ChatMessage } from '../provider/llm-provider.interface';
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { PrismaService } from "../prisma/prisma.service";
+import { ProviderService } from "../provider/provider.service";
+import { ChatMessage } from "../provider/llm-provider.interface";
 
 @Injectable()
 export class ChatService {
@@ -16,7 +16,7 @@ export class ChatService {
     return this.prisma.chatSession.create({
       data: {
         userId,
-        title: title || '',
+        title: title || "",
       },
     });
   }
@@ -26,7 +26,7 @@ export class ChatService {
     const [sessions, total] = await Promise.all([
       this.prisma.chatSession.findMany({
         where: { userId },
-        orderBy: { updatedAt: 'desc' },
+        orderBy: { updatedAt: "desc" },
         skip,
         take: pageSize,
         include: { _count: { select: { messages: true } } },
@@ -37,7 +37,7 @@ export class ChatService {
     return {
       list: sessions.map((s) => ({
         id: s.id,
-        title: s.title || '新对话',
+        title: s.title || "新对话",
         summary: s.summary,
         updatedAt: s.updatedAt,
         messageCount: s._count.messages,
@@ -51,15 +51,27 @@ export class ChatService {
   async getSession(sessionId: string, userId: string) {
     const session = await this.prisma.chatSession.findFirst({
       where: { id: sessionId, userId },
-      include: { messages: { orderBy: { createdAt: 'asc' } } },
+      include: { messages: { orderBy: { createdAt: "asc" } } },
     });
-    if (!session) throw new NotFoundException('会话不存在');
+    if (!session) throw new NotFoundException("会话不存在");
     return session;
   }
 
   async getMessages(sessionId: string, userId: string) {
     const session = await this.getSession(sessionId, userId);
     return session.messages;
+  }
+
+  async deleteSession(sessionId: string, userId: string) {
+    const session = await this.prisma.chatSession.findFirst({
+      where: { id: sessionId, userId },
+      select: { id: true },
+    });
+    if (!session) throw new NotFoundException("会话不存在");
+
+    await this.prisma.chatSession.delete({
+      where: { id: sessionId },
+    });
   }
 
   async saveMessage(
@@ -69,26 +81,38 @@ export class ChatService {
     metadata?: Record<string, unknown>,
   ) {
     return this.prisma.chatMessage.create({
-      data: { sessionId, role, content, metadata: metadata as object | undefined },
+      data: {
+        sessionId,
+        role,
+        content,
+        metadata: metadata as object | undefined,
+      },
     });
   }
 
   async saveUserMessage(sessionId: string, content: string) {
-    return this.saveMessage(sessionId, 'user', content, { type: 'user_input' });
+    return this.saveMessage(sessionId, "user", content, { type: "user_input" });
   }
 
-  async saveAssistantMessage(sessionId: string, content: string, metadata?: Record<string, unknown>) {
-    return this.saveMessage(sessionId, 'assistant', content, metadata);
+  async saveAssistantMessage(
+    sessionId: string,
+    content: string,
+    metadata?: Record<string, unknown>,
+  ) {
+    return this.saveMessage(sessionId, "assistant", content, metadata);
   }
 
-  async getRecentMessages(sessionId: string, limit = 20): Promise<ChatMessage[]> {
+  async getRecentMessages(
+    sessionId: string,
+    limit = 20,
+  ): Promise<ChatMessage[]> {
     const messages = await this.prisma.chatMessage.findMany({
       where: { sessionId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       take: limit,
     });
     return messages.reverse().map((m) => ({
-      role: m.role as 'user' | 'assistant',
+      role: m.role as "user" | "assistant",
       content: m.content,
     }));
   }
@@ -115,24 +139,29 @@ export class ChatService {
 
   checkContentSafety(content: string): boolean {
     // Basic keyword filter — stub for future ContentSafetyProvider
-    const blockedWords = ['赌博', '色情', '诈骗', '暴力'];
+    const blockedWords = ["赌博", "色情", "诈骗", "暴力"];
     const lower = content.toLowerCase();
     return !blockedWords.some((w) => lower.includes(w));
   }
 
-  async generateSummary(sessionId: string, userId: string): Promise<AsyncIterable<import('../provider/llm-provider.interface').ChatChunk>> {
+  async generateSummary(
+    sessionId: string,
+    userId: string,
+  ): Promise<
+    AsyncIterable<import("../provider/llm-provider.interface").ChatChunk>
+  > {
     const messages = await this.getMessages(sessionId, userId);
     if (messages.length < 4) {
-      throw new Error('当前对话内容较少，暂无法生成总结');
+      throw new Error("当前对话内容较少，暂无法生成总结");
     }
 
     const chatMessages: ChatMessage[] = messages.map((m) => ({
-      role: m.role as 'user' | 'assistant',
+      role: m.role as "user" | "assistant",
       content: m.content,
     }));
 
     const summaryPrompt: ChatMessage = {
-      role: 'user',
+      role: "user",
       content: `请对以上对话内容生成结构化旅行总结，按以下格式输出：
 
 ## 行程摘要
@@ -149,8 +178,8 @@ export class ChatService {
     return this.providerService.chatStream({
       messages: [
         {
-          role: 'system',
-          content: '你是旅行总结助手，只基于对话内容生成客观总结，不编造信息。',
+          role: "system",
+          content: "你是旅行总结助手，只基于对话内容生成客观总结，不编造信息。",
         },
         ...chatMessages,
         summaryPrompt,

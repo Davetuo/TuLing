@@ -17,6 +17,7 @@ import {
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useRouter } from "vue-router";
 import {
+  ArrowDown,
   Calendar,
   Clock,
   Download,
@@ -33,18 +34,25 @@ import { getWeatherForecast } from "@/shared/api/weather";
 import {
   createTrip,
   deleteTrip,
+  generateTripNarrative,
   listTrips,
   updateTrip,
 } from "@/shared/api/trips";
+import { searchRestaurants } from "@/shared/api/restaurants";
+import { searchHotels } from "@/shared/api/hotels";
 import { useAuthStore } from "@/stores/auth";
 import type {
   BudgetItem,
+  BudgetDetail,
   DailyPlan,
   Pace,
   RoutePoint,
   TripPayload,
   TripPlan,
 } from "@/shared/types/trip";
+import type { RestaurantListItem } from "@/shared/types/restaurant";
+import type { HotelListItem } from "@/shared/types/hotel";
+import NodeDetailDialog from "@/shared/components/NodeDetailDialog.vue";
 
 declare global {
   interface Window {
@@ -63,6 +71,10 @@ interface AmapPoi {
   lat: number;
   rating?: number;
   type?: string;
+  thumbnail?: string;
+  cost?: number;
+  category?: string;
+  refId?: string;
 }
 
 const LEGACY_HISTORY_KEY = "tuling-trip-history-v2";
@@ -99,6 +111,9 @@ const amapContainer = ref<HTMLElement | null>(null);
 const amapStatus = ref("");
 const weatherLoading = ref(false);
 const generating = ref(false);
+const detailNode = ref<RoutePoint | null>(null);
+const detailVisible = ref(false);
+const expandedBudgets = ref<Set<string>>(new Set());
 const authStore = useAuthStore();
 const router = useRouter();
 let amapInstance: any = null;
@@ -159,83 +174,106 @@ async function buildPlan() {
     form.dateRange.length === 2
       ? daysBetween(startDate, endDate)
       : Math.max(1, Math.min(15, form.days));
-  const nodesPerDay =
-    form.pace === "compact" ? 4 : form.pace === "relaxed" ? 2 : 3;
-  const neededCount = days * nodesPerDay;
 
   generating.value = true;
-  amapStatus.value = "正在从高德地图检索真实景点...";
-  let pois: AmapPoi[];
+  amapStatus.value = "正在检索景点 / 餐饮 / 住宿...";
+
+  let spots: AmapPoi[] = [];
+  let restaurants: AmapPoi[] = [];
+  let hotels: AmapPoi[] = [];
   try {
-    pois = await searchRealPois(destination, neededCount);
+    [spots, restaurants, hotels] = await Promise.all([
+      fetchSpots(destination, days * 2 + 5),
+      fetchRestaurants(destination, days * 2 + 3),
+      fetchHotels(destination, 5),
+    ]);
   } catch (error) {
     ElMessage.error(
       error instanceof Error
         ? error.message
-        : "高德景点检索失败，请检查地图 Key 后重试",
+        : "数据检索失败，请检查网络后重试",
     );
     generating.value = false;
+    amapStatus.value = "";
     return;
   } finally {
     amapStatus.value = "";
   }
 
-  if (!pois.length) {
-    ElMessage.error("未检索到可规划的真实景点，请换一个目的地或偏好");
+  if (!spots.length) {
+    ElMessage.error("未检索到可规划的景点，请换一个目的地或偏好");
     generating.value = false;
     return;
   }
 
-  const timeSlots = [
-    ["09:00", "11:00"],
-    ["11:30", "13:30"],
-    ["14:30", "16:30"],
-    ["19:00", "21:00"],
-  ];
+  const dailyPlans = composeMixedNodes(
+    destination,
+    days,
+    startDate,
+    spots,
+    restaurants,
+    hotels,
+  );
 
-  const dailyPlans: DailyPlan[] = Array.from(
-    { length: days },
-    (_, dayIndex) => {
-      const dailyPois = orderPoisByNearest(
-        pois.slice(dayIndex * nodesPerDay, (dayIndex + 1) * nodesPerDay),
-      );
-      const nodes = dailyPois.map((source, nodeIndex) => {
-        const [start, end] = timeSlots[nodeIndex];
-        return {
-          id: source.id || `d${dayIndex + 1}-${nodeIndex + 1}`,
-          day: dayIndex + 1,
-          order: nodeIndex + 1,
-          name: source.name,
-          area: source.area,
-          address: source.address,
-          start,
-          end,
-          duration: nodeIndex === nodesPerDay - 1 ? "90分钟" : "120分钟",
-          transport:
-            nodeIndex === 0
-              ? "酒店出发，打车或地铁前往"
-              : "地铁/步行衔接，控制换乘次数",
-          note: buildNodeNote(source.name, form.preferences, nodeIndex),
-          lng: source.lng,
-          lat: source.lat,
-          rating: source.rating,
-          type: source.type,
-        };
-      });
+  if (!dailyPlans.length) {
+    ElMessage.error("行程编排失败");
+    generating.value = false;
+    return;
+  }
 
-      return {
-        day: dayIndex + 1,
-        date: addDays(startDate, dayIndex),
-        theme: buildDayTheme(destination, dayIndex, form.preferences),
-        summary: `${destination}第 ${dayIndex + 1} 天安排 ${nodes.length} 个节点，兼顾${form.preferences.slice(0, 2).join("、") || "核心景点"}与交通顺路性。`,
-        distance: "路线计算中",
-        transitTime: "路线计算中",
-        nodes,
-      };
-    },
-  ).filter((day) => day.nodes.length > 0);
+  const budgetItems = buildBudgetFromNodes(
+    form.budget,
+    form.people,
+    days,
+    dailyPlans,
+  );
 
-  const budgetItems = buildBudget(form.budget, form.people, days);
+  // 默认文案兜底
+  let tripSummary = `已根据目的地、出行日期、预算和偏好生成 ${days} 天路线，融合景点 / 餐饮 / 住宿节点，预算按实际推荐反推。`;
+
+  // LLM 文案润色 — 失败时静默回退到模板
+  amapStatus.value = "AI 正在为行程撰写文案...";
+  try {
+    const narrative = await generateTripNarrative({
+      destination,
+      days,
+      preferences: [...form.preferences],
+      pace: form.pace,
+      dailyPlans: dailyPlans.map((d) => ({
+        day: d.day,
+        nodes: d.nodes.map((n) => ({
+          id: n.id,
+          name: n.name,
+          type: (n.type as string) || "spot",
+          category: n.category,
+          start: n.start,
+          end: n.end,
+        })),
+      })),
+    });
+
+    if (narrative?.summary) tripSummary = narrative.summary;
+    if (narrative) {
+      const dayMap = new Map(narrative.days.map((d) => [d.day, d]));
+      for (const day of dailyPlans) {
+        const llmDay = dayMap.get(day.day);
+        if (!llmDay) continue;
+        if (llmDay.theme) day.theme = llmDay.theme;
+        if (llmDay.summary) day.summary = llmDay.summary;
+        const noteMap = new Map(llmDay.nodes.map((n) => [n.id, n.note]));
+        for (const node of day.nodes) {
+          const llmNote = noteMap.get(node.id);
+          if (llmNote) node.note = llmNote;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[AI 文案] 失败，使用模板文案", err);
+    ElMessage.warning("AI 文案生成失败，已自动使用模板文案");
+  } finally {
+    amapStatus.value = "";
+  }
+
   const draft: TripPayload = {
     title: `${destination}${days}日智能行程`,
     destination,
@@ -246,7 +284,7 @@ async function buildPlan() {
     budget: form.budget,
     pace: form.pace,
     preferences: [...form.preferences],
-    summary: `已根据目的地、出行日期、预算和偏好生成 ${days} 天路线，地图中可按天查看景点顺序和交通走向。`,
+    summary: tripSummary,
     dailyPlans,
     budgetItems,
     weather: buildWeather(startDate, days),
@@ -255,8 +293,15 @@ async function buildPlan() {
   let plan: TripPlan;
   try {
     plan = await createTrip(draft);
-  } catch {
+  } catch (err: any) {
+    const backendMsg =
+      err?.response?.data?.message ||
+      err?.message ||
+      "行程保存失败，请稍后重试";
+    ElMessage.error(`行程生成失败：${backendMsg}`);
+    console.error("[一键规划] createTrip 失败", err);
     generating.value = false;
+    amapStatus.value = "";
     return;
   }
 
@@ -268,6 +313,224 @@ async function buildPlan() {
   nextTick(renderAmapRoute);
   generating.value = false;
   ElMessage.success("已生成行程方案");
+}
+
+// ─── 节点编排（5 节点标准型，最后一天去掉酒店）──────────────────
+// [0] 09:00-11:00 spot
+// [1] 11:30-13:30 meal (午餐)
+// [2] 14:30-16:30 spot
+// [3] 18:30-20:00 meal (晚餐)
+// [4] 21:00      hotel (整个行程同一家，最后一天不出现)
+function composeMixedNodes(
+  destination: string,
+  days: number,
+  startDate: string,
+  spots: AmapPoi[],
+  restaurants: AmapPoi[],
+  hotels: AmapPoi[],
+): DailyPlan[] {
+  const lockedHotel = hotels[0] || null;
+  const spotPool = [...spots];
+  const mealPool = [...restaurants];
+
+  return Array.from({ length: days }, (_, dayIndex) => {
+    const isLastDay = dayIndex === days - 1;
+    const nodes: RoutePoint[] = [];
+
+    const spotA = spotPool.shift() || null;
+    const spotB = spotPool.shift() || null;
+    const dailySpots = [spotA, spotB].filter(Boolean) as AmapPoi[];
+
+    // 按地理位置就近排序
+    const orderedSpots = orderPoisByNearest(dailySpots);
+
+    // 午餐：选 spotA 附近的餐厅；晚餐：选 spotB / 酒店附近
+    const lunch = pickNearestPoi(
+      mealPool,
+      orderedSpots[0] || lockedHotel,
+    );
+    const dinner = pickNearestPoi(
+      mealPool,
+      orderedSpots[1] || lockedHotel || orderedSpots[0],
+    );
+
+    if (orderedSpots[0]) {
+      nodes.push(
+        buildNode(dayIndex + 1, nodes.length + 1, orderedSpots[0], "spot", [
+          "09:00",
+          "11:00",
+        ]),
+      );
+    }
+    if (lunch) {
+      nodes.push(
+        buildNode(dayIndex + 1, nodes.length + 1, lunch, "meal", [
+          "11:30",
+          "13:30",
+        ]),
+      );
+    }
+    if (orderedSpots[1]) {
+      nodes.push(
+        buildNode(dayIndex + 1, nodes.length + 1, orderedSpots[1], "spot", [
+          "14:30",
+          "16:30",
+        ]),
+      );
+    }
+    if (dinner) {
+      nodes.push(
+        buildNode(dayIndex + 1, nodes.length + 1, dinner, "meal", [
+          "18:30",
+          "20:00",
+        ]),
+      );
+    }
+    if (lockedHotel && !isLastDay) {
+      nodes.push(
+        buildNode(dayIndex + 1, nodes.length + 1, lockedHotel, "hotel", [
+          "21:00",
+          "次日 08:00",
+        ]),
+      );
+    }
+
+    return {
+      day: dayIndex + 1,
+      date: addDays(startDate, dayIndex),
+      theme: buildDayTheme(destination, dayIndex, form.preferences),
+      summary: `${destination}第 ${dayIndex + 1} 天安排 ${nodes.length} 个节点，含 ${dailySpots.length} 个景点 / ${[lunch, dinner].filter(Boolean).length} 餐${lockedHotel && !isLastDay ? " / 含住宿" : ""}。`,
+      distance: "路线计算中",
+      transitTime: "路线计算中",
+      nodes,
+    };
+  }).filter((day) => day.nodes.length > 0);
+}
+
+function buildNode(
+  day: number,
+  order: number,
+  source: AmapPoi,
+  type: "spot" | "meal" | "hotel",
+  time: [string, string],
+): RoutePoint {
+  const transportMap: Record<typeof type, string> = {
+    spot: order === 1 ? "酒店出发，打车或地铁前往" : "地铁 / 步行衔接",
+    meal: "就近用餐，提前查看排号",
+    hotel: "返回酒店休息",
+  };
+  const durationMap: Record<typeof type, string> = {
+    spot: "120分钟",
+    meal: "90分钟",
+    hotel: "过夜",
+  };
+  const noteMap: Record<typeof type, string> = {
+    spot: `${source.name}是当天核心节点，建议提前预约并错峰进入`,
+    meal: source.cost
+      ? `${source.name}人均约 ¥${source.cost}，推荐尝试招牌菜`
+      : `${source.name}建议提前查看排号情况`,
+    hotel: `${source.name}作为整个行程的住宿落脚点，安排在每晚行程末段`,
+  };
+  return {
+    id: source.id || `d${day}-${order}`,
+    day,
+    order,
+    name: source.name,
+    area: source.area,
+    address: source.address,
+    start: time[0],
+    end: time[1],
+    duration: durationMap[type],
+    transport: transportMap[type],
+    note: noteMap[type],
+    lng: source.lng,
+    lat: source.lat,
+    rating: source.rating,
+    type,
+    category: source.category,
+    cost: source.cost,
+    thumbnail: source.thumbnail,
+    refId: source.refId,
+  };
+}
+
+function pickNearestPoi(pool: AmapPoi[], anchor: AmapPoi | null): AmapPoi | null {
+  if (!pool.length) return null;
+  if (!anchor) return pool.shift() || null;
+  let nearestIndex = 0;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  pool.forEach((poi, index) => {
+    const distance = Math.hypot(poi.lng - anchor.lng, poi.lat - anchor.lat);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestIndex = index;
+    }
+  });
+  return pool.splice(nearestIndex, 1)[0] || null;
+}
+
+// 节点详情弹窗（timeline / marker 共用）
+function openNodeDetail(node: RoutePoint) {
+  detailNode.value = node;
+  detailVisible.value = true;
+}
+
+function toggleBudget(label: string) {
+  const set = new Set(expandedBudgets.value);
+  if (set.has(label)) set.delete(label);
+  else set.add(label);
+  expandedBudgets.value = set;
+}
+
+function isBudgetExpanded(label: string): boolean {
+  return expandedBudgets.value.has(label);
+}
+
+function openBudgetDetail(detail: BudgetDetail) {
+  if (!detail.refNodeId || !currentPlan.value) return;
+  for (const day of currentPlan.value.dailyPlans) {
+    const found = day.nodes.find((n) => n.id === detail.refNodeId);
+    if (found) {
+      openNodeDetail(found);
+      return;
+    }
+  }
+}
+
+function nodeColor(type?: string) {
+  switch (type) {
+    case "meal":
+      return "#f97316";
+    case "hotel":
+      return "#8b5cf6";
+    case "spot":
+    default:
+      return "#6366f1";
+  }
+}
+
+function nodeEmoji(type?: string) {
+  switch (type) {
+    case "meal":
+      return "🍜";
+    case "hotel":
+      return "🏨";
+    case "spot":
+    default:
+      return "🏛";
+  }
+}
+
+function nodeTypeLabel(type?: string) {
+  switch (type) {
+    case "meal":
+      return "餐饮";
+    case "hotel":
+      return "住宿";
+    case "spot":
+    default:
+      return "景点";
+  }
 }
 
 function buildNodeNote(name: string, prefs: string[], index: number) {
@@ -294,27 +557,132 @@ function buildDayTheme(destination: string, dayIndex: number, prefs: string[]) {
   return themes[dayIndex % themes.length];
 }
 
-function buildBudget(
+function buildBudgetFromNodes(
   total: number,
   people: number,
   days: number,
+  dailyPlans: DailyPlan[],
 ): BudgetItem[] {
   const safeTotal = Math.max(800, total);
+  const allNodes = dailyPlans.flatMap((d) => d.nodes);
+  const meals = allNodes.filter((n) => n.type === "meal");
+  const hotelNodes = allNodes.filter((n) => n.type === "hotel");
+  const spots = allNodes.filter((n) => n.type === "spot");
+
+  // 餐饮：累计每餐人均 × 人数；空 cost 取 50 元兜底
+  const mealAmount = meals.reduce(
+    (sum, n) => sum + (n.cost ?? 50) * people,
+    0,
+  );
+  const mealNote = meals.length
+    ? `${meals.length} 餐，含 ${new Set(meals.map((m) => m.name)).size} 家餐厅`
+    : "未配置餐厅节点";
+  const mealDetails: BudgetDetail[] = meals.map((n) => {
+    const per = n.cost ?? 50;
+    const sub = per * people;
+    return {
+      name: n.name,
+      thumbnail: n.thumbnail,
+      meta: `Day ${n.day} · ${budgetMealSlot(n.start)}`,
+      unitText: `人均 ¥${per} × ${people} 人`,
+      totalCost: sub,
+      refNodeId: n.id,
+    };
+  });
+
+  // 住宿：当前实现整段行程同一家酒店；hotelNodes 中可能含多次（每天结束有一个）
+  const hotelSample = hotelNodes[0];
+  const hotelCostPerNight =
+    hotelSample?.cost ?? Math.round((safeTotal * 0.34) / Math.max(1, days - 1));
+  const hotelNights = hotelNodes.length || Math.max(0, days - 1);
+  const hotelAmount = hotelCostPerNight * hotelNights;
+  const hotelNote = hotelSample
+    ? `${hotelSample.name}, ${hotelNights} 晚`
+    : `${hotelNights} 晚估算`;
+
+  // 按酒店名聚合（同名节点合并为一晚数），保留首个节点用于详情跳转
+  const hotelGroups = new Map<
+    string,
+    { sample: RoutePoint; nights: number; perNight: number }
+  >();
+  for (const n of hotelNodes) {
+    const key = n.name;
+    const existing = hotelGroups.get(key);
+    if (existing) {
+      existing.nights += 1;
+    } else {
+      hotelGroups.set(key, {
+        sample: n,
+        nights: 1,
+        perNight: n.cost ?? hotelCostPerNight,
+      });
+    }
+  }
+  const hotelDetails: BudgetDetail[] =
+    hotelGroups.size > 0
+      ? Array.from(hotelGroups.values()).map((g) => ({
+          name: g.sample.name,
+          thumbnail: g.sample.thumbnail,
+          meta: `${g.sample.category || "酒店住宿"}`,
+          unitText: `¥${g.perNight}/晚 × ${g.nights} 晚`,
+          totalCost: g.perNight * g.nights,
+          refNodeId: g.sample.id,
+        }))
+      : [
+          {
+            name: "酒店估算",
+            meta: "尚未指定酒店",
+            unitText: `¥${hotelCostPerNight}/晚 × ${hotelNights} 晚`,
+            totalCost: hotelAmount,
+          },
+        ];
+
+  // 门票：累计景点 cost × 人数，空 cost 当免费
+  const ticketAmount = spots.reduce(
+    (sum, n) => sum + (n.cost ?? 0) * people,
+    0,
+  );
+  const ticketNote = spots.length
+    ? `${spots.length} 个景点，含高德参考价`
+    : "暂无景点票务信息";
+  const ticketDetails: BudgetDetail[] = spots.map((n) => {
+    const per = n.cost ?? 0;
+    const sub = per * people;
+    return {
+      name: n.name,
+      thumbnail: n.thumbnail,
+      meta: `Day ${n.day} · ${n.category || "景点"}`,
+      unitText:
+        per > 0 ? `¥${per}/人 × ${people} 人` : "免费 / 无需门票",
+      totalCost: sub,
+      refNodeId: n.id,
+    };
+  });
+
   return [
     {
       label: "住宿",
-      amount: Math.round(safeTotal * 0.34),
-      note: `${days - 1 || 1} 晚，按 ${people} 人估算`,
-    },
-    {
-      label: "门票预约",
-      amount: Math.round(safeTotal * 0.22),
-      note: "优先覆盖核心景区和展馆",
+      amount: hotelAmount,
+      note: hotelNote,
+      expandable: true,
+      category: "hotel",
+      details: hotelDetails,
     },
     {
       label: "餐饮",
-      amount: Math.round(safeTotal * 0.24),
-      note: "含当地特色餐与简餐",
+      amount: mealAmount,
+      note: mealNote,
+      expandable: true,
+      category: "meal",
+      details: mealDetails,
+    },
+    {
+      label: "门票",
+      amount: ticketAmount,
+      note: ticketNote,
+      expandable: true,
+      category: "spot",
+      details: ticketDetails,
     },
     {
       label: "市内交通",
@@ -327,6 +695,15 @@ function buildBudget(
       note: "应对排队、寄存和临时调整",
     },
   ];
+}
+
+function budgetMealSlot(start: string): string {
+  // start 形如 "12:30"；按小时段映射成"早/午/晚餐"
+  const hour = parseInt(start?.split(":")[0] || "12", 10);
+  if (hour < 10) return "早餐";
+  if (hour < 14) return "午餐";
+  if (hour < 17) return "下午茶";
+  return "晚餐";
 }
 
 function buildWeather(startDate: string, days: number) {
@@ -358,36 +735,19 @@ async function loadWeatherForPlan(plan: TripPlan) {
   }
 }
 
-function getPoiKeywords() {
-  const keywords = ["景区", "风景名胜", "博物馆", "公园"];
-  if (form.preferences.includes("历史文化"))
-    keywords.push("历史古迹", "纪念馆", "文化景点");
-  if (form.preferences.includes("自然风光"))
-    keywords.push("自然风景区", "森林公园", "湖泊");
-  if (form.preferences.includes("亲子友好"))
-    keywords.push("动物园", "科技馆", "主题公园");
-  if (form.preferences.includes("美食夜游"))
-    keywords.push("夜市", "步行街", "美食街");
-  if (form.preferences.includes("拍照出片"))
-    keywords.push("观景台", "艺术街区", "网红景点");
-  return Array.from(new Set(keywords));
-}
-
-async function searchRealPois(
-  destination: string,
-  neededCount: number,
-): Promise<AmapPoi[]> {
+// ─── 景点检索（前端 AMap.PlaceSearch，因为 ScenicSpot 表没有 lng/lat）─────
+async function fetchSpots(city: string, pageSize: number): Promise<AmapPoi[]> {
   const AMap = await ensureAmap();
   if (!AMap) {
-    throw new Error("未能加载高德地图，无法基于真实景点规划");
+    ElMessage.warning("未加载高德地图，景点检索可能不完整");
+    return [];
   }
 
   const keywords = getPoiKeywords();
   const batches = await Promise.all(
-    keywords.map((keyword) => searchPoiByKeyword(AMap, destination, keyword)),
+    keywords.map((keyword) => searchPoiByKeyword(AMap, city, keyword)),
   );
   const unique = new Map<string, AmapPoi>();
-
   batches.flat().forEach((poi) => {
     const key = poi.id || `${poi.name}-${poi.lng}-${poi.lat}`;
     if (!unique.has(key)) unique.set(key, poi);
@@ -396,7 +756,20 @@ async function searchRealPois(
   return Array.from(unique.values())
     .filter((poi) => Number.isFinite(poi.lng) && Number.isFinite(poi.lat))
     .sort((a, b) => (b.rating || 0) - (a.rating || 0))
-    .slice(0, Math.max(neededCount, 8));
+    .slice(0, Math.max(pageSize, 8));
+}
+
+function getPoiKeywords() {
+  const keywords = ["景区", "风景名胜", "博物馆", "公园"];
+  if (form.preferences.includes("历史文化"))
+    keywords.push("历史古迹", "纪念馆", "文化景点");
+  if (form.preferences.includes("自然风光"))
+    keywords.push("自然风景区", "森林公园", "湖泊");
+  if (form.preferences.includes("亲子友好"))
+    keywords.push("动物园", "科技馆", "主题公园");
+  if (form.preferences.includes("拍照出片"))
+    keywords.push("观景台", "艺术街区", "网红景点");
+  return Array.from(new Set(keywords));
 }
 
 function searchPoiByKeyword(
@@ -424,6 +797,8 @@ function searchPoiByKeyword(
           const lng = getLng(item.location);
           const lat = getLat(item.location);
           if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+          const rawTicket = item.biz_ext?.cost || "";
+          const photoUrl = item.photos?.[0]?.url;
           return {
             id: item.id || `${item.name}-${lng}-${lat}`,
             name: item.name,
@@ -434,7 +809,13 @@ function searchPoiByKeyword(
             rating:
               Number.parseFloat(item.biz_ext?.rating || item.rating || "0") ||
               0,
-            type: item.type,
+            type: "spot" as const,
+            category: item.type,
+            thumbnail:
+              typeof photoUrl === "string" && photoUrl.startsWith("http")
+                ? photoUrl
+                : undefined,
+            cost: parseTicketCost(rawTicket ? `参考门票 ¥${rawTicket}` : null),
           } satisfies AmapPoi;
         })
         .filter(Boolean) as AmapPoi[];
@@ -454,6 +835,91 @@ function getLat(location: any) {
   if (!location) return Number.NaN;
   if (typeof location.getLat === "function") return location.getLat();
   return Number(location.lat);
+}
+
+// ─── 餐饮/住宿检索（走后端 API，含 Redis 缓存 + 高德兜底）─────────
+async function fetchRestaurants(
+  city: string,
+  pageSize: number,
+): Promise<AmapPoi[]> {
+  try {
+    const { data } = await searchRestaurants({
+      city,
+      sort: "rating",
+      pageSize: Math.max(6, pageSize),
+    });
+    return data.items
+      .filter(
+        (r: RestaurantListItem) =>
+          r.lng != null && r.lat != null && Number.isFinite(r.lng) && Number.isFinite(r.lat),
+      )
+      .map<AmapPoi>((r: RestaurantListItem) => ({
+        id: r.id,
+        name: r.name,
+        area: r.city || city,
+        address: r.address || r.name,
+        lng: r.lng as number,
+        lat: r.lat as number,
+        rating: r.score ?? undefined,
+        type: "meal",
+        category: (r.cuisine || []).slice(0, 2).join("·") || (r.tags || []).slice(0, 2).join("·"),
+        thumbnail: r.thumbnail || r.images?.[0] || undefined,
+        cost: r.avgCost ?? undefined,
+        refId: r.id,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+async function fetchHotels(city: string, pageSize: number): Promise<AmapPoi[]> {
+  try {
+    const { data } = await searchHotels({
+      city,
+      sort: "rating",
+      pageSize: Math.max(3, pageSize),
+    });
+    return data.items
+      .filter(
+        (h: HotelListItem) =>
+          h.lng != null && h.lat != null && Number.isFinite(h.lng) && Number.isFinite(h.lat),
+      )
+      .map<AmapPoi>((h: HotelListItem) => {
+        const midPrice =
+          h.priceMin && h.priceMax
+            ? Math.round((h.priceMin + h.priceMax) / 2)
+            : h.priceMin || h.priceMax || undefined;
+        const starText = h.starLevel ? `${h.starLevel}星` : "";
+        const priceText =
+          h.priceMin && h.priceMax ? `¥${h.priceMin}-${h.priceMax}/晚` : "";
+        return {
+          id: h.id,
+          name: h.name,
+          area: h.city || city,
+          address: h.address || h.name,
+          lng: h.lng as number,
+          lat: h.lat as number,
+          rating: h.score ?? undefined,
+          type: "hotel",
+          category: [starText, priceText].filter(Boolean).join(" · "),
+          thumbnail: h.thumbnail || h.images?.[0] || undefined,
+          cost: midPrice,
+          refId: h.id,
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+// 从 "参考门票 ¥70" / "免费" 这类文本提取数字门票价
+function parseTicketCost(ticketInfo: string | null | undefined): number | undefined {
+  if (!ticketInfo) return undefined;
+  if (ticketInfo.includes("免费")) return 0;
+  const match = ticketInfo.match(/¥?\s*(\d+(?:\.\d+)?)/);
+  if (!match) return undefined;
+  const n = Number(match[1]);
+  return Number.isFinite(n) ? Math.round(n) : undefined;
 }
 
 function orderPoisByNearest(pois: AmapPoi[]) {
@@ -537,39 +1003,21 @@ async function renderAmapRoute() {
   clearAmapOverlays();
 
   amapMarkers = currentDailyPlan.value.nodes.map((point) => {
+    const nodeType = (point.type as string) || "spot";
+    const typeIcon = nodeType === "meal" ? "🍜" : nodeType === "hotel" ? "🏨" : "🏛";
+    const markerClass = `amap-route-marker marker-${nodeType}`;
     const marker = new AMap.Marker({
       position: [point.lng, point.lat],
       title: point.name,
       label: {
         direction: "right",
         offset: new AMap.Pixel(10, 0),
-        content: `<div class="amap-route-label">${point.day}-${point.order} ${point.name}</div>`,
+        content: `<div class="amap-route-label">${typeIcon} ${point.day}-${point.order} ${point.name}</div>`,
       },
-      content: `<div class="amap-route-marker">${point.day}-${point.order}</div>`,
+      content: `<div class="${markerClass}">${typeIcon}</div>`,
     });
     marker.on("click", () => {
-      const btnId = `tl-review-jump-${point.day}-${point.order}`;
-      const infoWindow = new AMap.InfoWindow({
-        anchor: "bottom-center",
-        offset: new AMap.Pixel(0, -28),
-        content: `<div class="tl-info-card"><strong class="tl-info-title">${point.name}</strong><span class="tl-info-meta">${point.start}-${point.end} · ${point.duration}</span><p class="tl-info-addr">${point.address}</p><button type="button" id="${btnId}" class="tl-info-btn">检索这个景点 →</button></div>`,
-      });
-      infoWindow.open(amapInstance, [point.lng, point.lat]);
-      // 高德 InfoWindow 在下一帧插入 DOM,延后绑定 click
-      setTimeout(() => {
-        const btn = document.getElementById(btnId);
-        if (!btn) return;
-        btn.onclick = (event) => {
-          event.stopPropagation();
-          router.push({
-            path: "/spots",
-            query: {
-              keyword: point.name,
-              city: currentPlan.value?.destination || "",
-            },
-          });
-        };
-      }, 0);
+      openNodeDetail(point);
     });
     amapInstance.add(marker);
     return marker;
@@ -1020,12 +1468,82 @@ watch([activeTab, selectedDay, currentPlan], () => {
                 v-for="item in currentPlan.budgetItems"
                 :key="item.label"
                 class="budget-row"
+                :class="{
+                  'budget-row-expandable': item.expandable,
+                  'budget-row-expanded':
+                    item.expandable && isBudgetExpanded(item.label),
+                }"
               >
-                <div>
-                  <strong>{{ item.label }}</strong>
-                  <span>{{ item.note }}</span>
+                <div
+                  class="budget-row-head"
+                  :role="item.expandable ? 'button' : undefined"
+                  :tabindex="item.expandable ? 0 : -1"
+                  @click="item.expandable && toggleBudget(item.label)"
+                  @keydown.enter="item.expandable && toggleBudget(item.label)"
+                  @keydown.space.prevent="
+                    item.expandable && toggleBudget(item.label)
+                  "
+                >
+                  <div class="budget-row-text">
+                    <strong>{{ item.label }}</strong>
+                    <span>{{ item.note }}</span>
+                  </div>
+                  <div class="budget-row-right">
+                    <b>¥{{ item.amount }}</b>
+                    <el-icon
+                      v-if="item.expandable"
+                      class="budget-arrow"
+                      :class="{ open: isBudgetExpanded(item.label) }"
+                    >
+                      <ArrowDown />
+                    </el-icon>
+                  </div>
                 </div>
-                <b>¥{{ item.amount }}</b>
+
+                <Transition name="budget-expand">
+                  <ul
+                    v-if="
+                      item.expandable &&
+                      item.details &&
+                      item.details.length > 0 &&
+                      isBudgetExpanded(item.label)
+                    "
+                    class="budget-detail-list"
+                  >
+                    <li
+                      v-for="(d, idx) in item.details"
+                      :key="`${item.label}-${idx}-${d.name}`"
+                      class="budget-detail-item"
+                      :class="{ clickable: d.refNodeId }"
+                      @click="openBudgetDetail(d)"
+                    >
+                      <div
+                        v-if="d.thumbnail"
+                        class="budget-detail-thumb"
+                        :style="{ backgroundImage: `url(${d.thumbnail})` }"
+                      ></div>
+                      <div
+                        v-else
+                        class="budget-detail-thumb placeholder"
+                      >
+                        {{ nodeEmoji(item.category) }}
+                      </div>
+                      <div class="budget-detail-body">
+                        <div class="budget-detail-name">{{ d.name }}</div>
+                        <div class="budget-detail-meta">
+                          <span>{{ d.meta }}</span>
+                          <span
+                            v-if="d.unitText"
+                            class="budget-detail-unit"
+                          >· {{ d.unitText }}</span>
+                        </div>
+                      </div>
+                      <div class="budget-detail-cost">
+                        <b>¥{{ d.totalCost }}</b>
+                      </div>
+                    </li>
+                  </ul>
+                </Transition>
               </div>
             </div>
           </el-tab-pane>
@@ -1068,14 +1586,37 @@ watch([activeTab, selectedDay, currentPlan], () => {
                   :key="node.id"
                   :timestamp="`${node.start} - ${node.end}`"
                   placement="top"
+                  :color="nodeColor(node.type)"
                 >
-                  <div class="timeline-card">
-                    <h3>{{ node.day }}-{{ node.order }} {{ node.name }}</h3>
+                  <div
+                    class="timeline-card"
+                    :class="`timeline-${node.type || 'spot'}`"
+                    @click="openNodeDetail(node)"
+                  >
+                    <div class="timeline-card-head">
+                      <span class="timeline-type-badge">{{ nodeEmoji(node.type) }} {{ nodeTypeLabel(node.type) }}</span>
+                      <h3>{{ node.day }}-{{ node.order }} {{ node.name }}</h3>
+                    </div>
                     <p>{{ node.address }}</p>
                     <div class="timeline-tags">
                       <el-tag size="small" type="info">{{
                         node.duration
                       }}</el-tag>
+                      <el-tag
+                        v-if="node.cost != null"
+                        size="small"
+                        effect="plain"
+                        :type="node.type === 'hotel' ? 'success' : 'warning'"
+                      >
+                        {{ node.cost === 0 ? "免费" : `¥${node.cost}` }}
+                      </el-tag>
+                      <el-tag
+                        v-if="node.rating && node.rating > 0"
+                        size="small"
+                        effect="plain"
+                      >
+                        ★ {{ node.rating.toFixed(1) }}
+                      </el-tag>
                       <el-tag size="small" effect="plain">{{
                         node.transport
                       }}</el-tag>
@@ -1127,6 +1668,8 @@ watch([activeTab, selectedDay, currentPlan], () => {
         <el-empty description="输入条件后生成行程方案" />
       </main>
     </section>
+
+    <NodeDetailDialog v-model="detailVisible" :node="detailNode" />
   </div>
 </template>
 
@@ -1519,14 +2062,12 @@ watch([activeTab, selectedDay, currentPlan], () => {
 
 .budget-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 18px;
+  flex-direction: column;
   border: 1px solid var(--tl-border-soft);
   border-radius: var(--tl-radius-md);
   background: var(--tl-bg-soft);
   transition: all var(--tl-tx);
+  overflow: hidden;
 }
 
 .budget-row:hover {
@@ -1534,10 +2075,37 @@ watch([activeTab, selectedDay, currentPlan], () => {
   border-color: #c7d2fe;
 }
 
-.budget-row div {
+.budget-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+}
+
+.budget-row-expandable .budget-row-head {
+  cursor: pointer;
+  user-select: none;
+}
+
+.budget-row-expandable .budget-row-head:focus-visible {
+  outline: 2px solid var(--tl-primary);
+  outline-offset: -2px;
+  border-radius: var(--tl-radius-md);
+}
+
+.budget-row-text {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
+}
+
+.budget-row-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 .budget-row strong {
@@ -1545,7 +2113,7 @@ watch([activeTab, selectedDay, currentPlan], () => {
   font-size: 15px;
 }
 
-.budget-row span {
+.budget-row-text span {
   color: var(--tl-text-5);
   font-size: 13px;
 }
@@ -1554,6 +2122,129 @@ watch([activeTab, selectedDay, currentPlan], () => {
   color: #f97316;
   font-size: 20px;
   font-weight: 800;
+}
+
+.budget-arrow {
+  color: var(--tl-text-5);
+  font-size: 16px;
+  transition: transform 0.25s ease;
+}
+
+.budget-arrow.open {
+  transform: rotate(180deg);
+  color: var(--tl-primary);
+}
+
+.budget-row-expanded {
+  background: #fff;
+  border-color: #c7d2fe;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.08);
+}
+
+/* ── Budget detail list ── */
+.budget-detail-list {
+  margin: 0;
+  padding: 4px 12px 14px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px dashed var(--tl-border-soft);
+}
+
+.budget-detail-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--tl-radius-md);
+  background: var(--tl-bg-soft);
+  transition: background var(--tl-tx), transform var(--tl-tx);
+}
+
+.budget-detail-item.clickable {
+  cursor: pointer;
+}
+
+.budget-detail-item.clickable:hover {
+  background: var(--tl-primary-soft);
+  transform: translateX(2px);
+}
+
+.budget-detail-thumb {
+  width: 54px;
+  height: 54px;
+  border-radius: 10px;
+  background-size: cover;
+  background-position: center;
+  background-color: var(--tl-bg-mute);
+  flex-shrink: 0;
+}
+
+.budget-detail-thumb.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  color: var(--tl-text-5);
+}
+
+.budget-detail-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.budget-detail-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tl-text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.budget-detail-meta {
+  font-size: 12px;
+  color: var(--tl-text-5);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.budget-detail-unit {
+  color: var(--tl-text-4);
+}
+
+.budget-detail-cost {
+  flex-shrink: 0;
+}
+
+.budget-detail-cost b {
+  font-size: 16px;
+  color: #f97316;
+  font-weight: 700;
+}
+
+/* expand transition */
+.budget-expand-enter-active,
+.budget-expand-leave-active {
+  transition: max-height 0.25s ease, opacity 0.2s ease;
+  overflow: hidden;
+}
+
+.budget-expand-enter-from,
+.budget-expand-leave-to {
+  max-height: 0;
+  opacity: 0;
+}
+
+.budget-expand-enter-to,
+.budget-expand-leave-from {
+  max-height: 600px;
+  opacity: 1;
 }
 
 /* ── Map ── */
@@ -1644,15 +2335,30 @@ watch([activeTab, selectedDay, currentPlan], () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border: 2px solid #fff;
   border-radius: 50%;
   background: var(--tl-primary);
   color: #fff;
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 800;
   box-shadow: 0 0 12px rgba(112, 124, 255, 0.75);
+}
+
+.route-map :deep(.amap-route-marker.marker-spot) {
+  background: #6366f1;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.7);
+}
+
+.route-map :deep(.amap-route-marker.marker-meal) {
+  background: #f97316;
+  box-shadow: 0 0 12px rgba(249, 115, 22, 0.7);
+}
+
+.route-map :deep(.amap-route-marker.marker-hotel) {
+  background: #8b5cf6;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.7);
 }
 
 .route-map :deep(.amap-route-label) {
@@ -1727,13 +2433,58 @@ watch([activeTab, selectedDay, currentPlan], () => {
 
 .timeline-card {
   padding: 16px 18px;
+  cursor: pointer;
+  border-left: 4px solid #6366f1;
+  transition: all var(--tl-tx);
+}
+
+.timeline-card:hover {
+  box-shadow: var(--tl-shadow-md);
+  transform: translateY(-1px);
+}
+
+.timeline-card.timeline-meal {
+  border-left-color: #f97316;
+}
+
+.timeline-card.timeline-hotel {
+  border-left-color: #8b5cf6;
+}
+
+.timeline-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.timeline-type-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--tl-radius-pill);
+  background: var(--tl-bg-mute);
+  color: var(--tl-text-3);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.timeline-meal .timeline-type-badge {
+  background: rgba(249, 115, 22, 0.12);
+  color: #c2410c;
+}
+
+.timeline-hotel .timeline-type-badge {
+  background: rgba(139, 92, 246, 0.12);
+  color: #6d28d9;
 }
 
 .timeline-card h3 {
-  margin: 0 0 8px;
+  margin: 0;
   color: var(--tl-text-1);
   font-size: 16px;
   font-weight: 700;
+  flex: 1 1 auto;
 }
 
 .timeline-card p,

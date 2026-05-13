@@ -10,6 +10,11 @@ import { UserModule } from './user/user.module';
 import { ProviderModule } from './provider/provider.module';
 import { ChatModule } from './chat/chat.module';
 import { SpotModule } from './spot/spot.module';
+import { WeatherModule } from './weather/weather.module';
+import { MemoryModule } from './memory/memory.module';
+import { TripModule } from './trip/trip.module';
+import { RestaurantModule } from './restaurant/restaurant.module';
+import { HotelModule } from './hotel/hotel.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 
 @Module({
@@ -35,6 +40,11 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
     ProviderModule,
     ChatModule,
     SpotModule,
+    WeatherModule,
+    MemoryModule,
+    TripModule,
+    RestaurantModule,
+    HotelModule,
   ],
   providers: [
     {

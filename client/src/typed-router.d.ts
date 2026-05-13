@@ -51,6 +51,27 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/hotels/': RouteRecordInfo<
+      '/hotels/',
+      '/hotels',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/hotels/[id]': RouteRecordInfo<
+      '/hotels/[id]',
+      '/hotels/:id',
+      { id: ParamValue<true> },
+      { id: ParamValue<false> },
+      | never
+    >,
+    '/hotels/favorites': RouteRecordInfo<
+      '/hotels/favorites',
+      '/hotels/favorites',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
     '/login': RouteRecordInfo<
       '/login',
       '/login',
@@ -61,6 +82,27 @@ declare module 'vue-router/auto-routes' {
     '/register': RouteRecordInfo<
       '/register',
       '/register',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/restaurants/': RouteRecordInfo<
+      '/restaurants/',
+      '/restaurants',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/restaurants/[id]': RouteRecordInfo<
+      '/restaurants/[id]',
+      '/restaurants/:id',
+      { id: ParamValue<true> },
+      { id: ParamValue<false> },
+      | never
+    >,
+    '/restaurants/favorites': RouteRecordInfo<
+      '/restaurants/favorites',
+      '/restaurants/favorites',
       Record<never, never>,
       Record<never, never>,
       | never
@@ -82,6 +124,13 @@ declare module 'vue-router/auto-routes' {
     '/spots/favorites': RouteRecordInfo<
       '/spots/favorites',
       '/spots/favorites',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/spots/reviews': RouteRecordInfo<
+      '/spots/reviews',
+      '/spots/reviews',
       Record<never, never>,
       Record<never, never>,
       | never
@@ -130,6 +179,24 @@ declare module 'vue-router/auto-routes' {
       views:
         | never
     }
+    'src/pages/hotels/index.vue': {
+      routes:
+        | '/hotels/'
+      views:
+        | never
+    }
+    'src/pages/hotels/[id].vue': {
+      routes:
+        | '/hotels/[id]'
+      views:
+        | never
+    }
+    'src/pages/hotels/favorites.vue': {
+      routes:
+        | '/hotels/favorites'
+      views:
+        | never
+    }
     'src/pages/login.vue': {
       routes:
         | '/login'
@@ -139,6 +206,24 @@ declare module 'vue-router/auto-routes' {
     'src/pages/register.vue': {
       routes:
         | '/register'
+      views:
+        | never
+    }
+    'src/pages/restaurants/index.vue': {
+      routes:
+        | '/restaurants/'
+      views:
+        | never
+    }
+    'src/pages/restaurants/[id].vue': {
+      routes:
+        | '/restaurants/[id]'
+      views:
+        | never
+    }
+    'src/pages/restaurants/favorites.vue': {
+      routes:
+        | '/restaurants/favorites'
       views:
         | never
     }
@@ -157,6 +242,12 @@ declare module 'vue-router/auto-routes' {
     'src/pages/spots/favorites.vue': {
       routes:
         | '/spots/favorites'
+      views:
+        | never
+    }
+    'src/pages/spots/reviews.vue': {
+      routes:
+        | '/spots/reviews'
       views:
         | never
     }

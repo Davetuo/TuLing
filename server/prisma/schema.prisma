@@ -8,31 +8,37 @@ datasource db {
 }
 
 model User {
-  id            String   @id @default(uuid()) @db.Uuid
-  email         String?  @unique @db.VarChar(255)
-  phone         String?  @unique @db.VarChar(20)
-  passwordHash  String   @map("password_hash") @db.VarChar(255)
-  nickname      String   @default("") @db.VarChar(100)
-  avatarUrl     String?  @map("avatar_url") @db.VarChar(500)
-  status        String   @default("active") @db.VarChar(20)
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String?  @unique @db.VarChar(255)
+  phone        String?  @unique @db.VarChar(20)
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  nickname     String   @default("") @db.VarChar(100)
+  avatarUrl    String?  @map("avatar_url") @db.VarChar(500)
+  status       String   @default("active") @db.VarChar(20)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
-  authTokens    AuthToken[]
-  chatSessions  ChatSession[]
-  spotFavorites SpotFavorite[]
-  spotReviews   SpotReview[]
+  authTokens          AuthToken[]
+  chatSessions        ChatSession[]
+  spotFavorites       SpotFavorite[]
+  spotReviews         SpotReview[]
+  restaurantFavorites RestaurantFavorite[]
+  restaurantReviews   RestaurantReview[]
+  hotelFavorites      HotelFavorite[]
+  hotelReviews        HotelReview[]
+  memories            Memory[]
+  trips               Trip[]
 
   @@map("users")
 }
 
 model AuthToken {
-  id               String   @id @default(uuid()) @db.Uuid
-  userId           String   @map("user_id") @db.Uuid
-  refreshTokenHash String   @map("refresh_token_hash") @db.VarChar(255)
-  expiresAt        DateTime @map("expires_at")
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  refreshTokenHash String    @map("refresh_token_hash") @db.VarChar(255)
+  expiresAt        DateTime  @map("expires_at")
   revokedAt        DateTime? @map("revoked_at")
-  createdAt        DateTime @default(now()) @map("created_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -125,4 +131,170 @@ model SpotReview {
   @@index([spotId, createdAt(sort: Desc)])
   @@index([userId])
   @@map("spot_reviews")
+}
+
+// ── 餐厅模块 ──
+
+model Restaurant {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @db.VarChar(255)
+  city         String   @default("") @db.VarChar(100)
+  address      String   @default("") @db.Text
+  tags         String[] @default([])
+  cuisine      String[] @default([])
+  score        Decimal? @db.Decimal(3, 1)
+  avgCost      Int?     @map("avg_cost")
+  openTime     String?  @map("open_time") @db.VarChar(200)
+  images       String[] @default([])
+  introduction String?  @db.Text
+  phone        String?  @db.VarChar(50)
+  lng          Decimal? @db.Decimal(10, 6)
+  lat          Decimal? @db.Decimal(10, 6)
+  source       String?  @db.VarChar(50)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  favorites RestaurantFavorite[]
+  reviews   RestaurantReview[]
+
+  @@index([city, score(sort: Desc)])
+  @@map("restaurants")
+}
+
+model RestaurantFavorite {
+  userId       String   @map("user_id") @db.Uuid
+  restaurantId String   @map("restaurant_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@id([userId, restaurantId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("restaurant_favorites")
+}
+
+model RestaurantReview {
+  id           String   @id @default(uuid()) @db.Uuid
+  restaurantId String   @map("restaurant_id") @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  score        Int      @db.SmallInt
+  content      String?  @db.Text
+  images       String[] @default([])
+  status       String   @default("approved") @db.VarChar(50)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId, createdAt(sort: Desc)])
+  @@index([userId])
+  @@map("restaurant_reviews")
+}
+
+// ── 酒店模块 ──
+
+model Hotel {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @db.VarChar(255)
+  city         String   @default("") @db.VarChar(100)
+  address      String   @default("") @db.Text
+  tags         String[] @default([])
+  score        Decimal? @db.Decimal(3, 1)
+  starLevel    Int?     @map("star_level") @db.SmallInt
+  priceMin     Int?     @map("price_min")
+  priceMax     Int?     @map("price_max")
+  openTime     String?  @map("open_time") @db.VarChar(200)
+  images       String[] @default([])
+  introduction String?  @db.Text
+  phone        String?  @db.VarChar(50)
+  lng          Decimal? @db.Decimal(10, 6)
+  lat          Decimal? @db.Decimal(10, 6)
+  source       String?  @db.VarChar(50)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  favorites HotelFavorite[]
+  reviews   HotelReview[]
+
+  @@index([city, score(sort: Desc)])
+  @@map("hotels")
+}
+
+model HotelFavorite {
+  userId    String   @map("user_id") @db.Uuid
+  hotelId   String   @map("hotel_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hotel Hotel @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  @@id([userId, hotelId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("hotel_favorites")
+}
+
+model HotelReview {
+  id        String   @id @default(uuid()) @db.Uuid
+  hotelId   String   @map("hotel_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  score     Int      @db.SmallInt
+  content   String?  @db.Text
+  images    String[] @default([])
+  status    String   @default("approved") @db.VarChar(50)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  hotel Hotel @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([hotelId, createdAt(sort: Desc)])
+  @@index([userId])
+  @@map("hotel_reviews")
+}
+
+// ── 图片纪念墙模块 ──
+
+model Memory {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  imageUrl  String    @map("image_url") @db.VarChar(500)
+  title     String    @default("") @db.VarChar(100)
+  location  String    @default("") @db.VarChar(100)
+  takenAt   DateTime? @map("taken_at")
+  width     Int?
+  height    Int?
+  size      Int?
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("memories")
+}
+
+// ── 行程规划模块 ──
+
+model Trip {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  title       String   @db.VarChar(200)
+  destination String   @db.VarChar(100)
+  startDate   String   @map("start_date") @db.VarChar(20)
+  endDate     String   @map("end_date") @db.VarChar(20)
+  days        Int      @db.SmallInt
+  people      Int      @db.SmallInt
+  budget      Int
+  pace        String   @db.VarChar(20)
+  preferences String[] @default([])
+  summary     String   @db.Text
+  dailyPlans  Json     @map("daily_plans") @db.JsonB
+  budgetItems Json     @map("budget_items") @db.JsonB
+  weather     Json?    @db.JsonB
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("trips")
 }

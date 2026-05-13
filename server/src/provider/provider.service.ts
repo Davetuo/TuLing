@@ -20,4 +20,20 @@ export class ProviderService {
     const provider = this.getLLMProvider();
     yield* provider.chatStream(request);
   }
+
+  // 同步聚合版：将 stream 拼接成完整字符串，配合非流式场景（如 JSON 生成）
+  async chatComplete(request: ChatStreamRequest): Promise<string> {
+    let result = '';
+    let lastError: string | undefined;
+    for await (const chunk of this.chatStream(request)) {
+      if (chunk.error) lastError = chunk.error;
+      if (chunk.content) result += chunk.content;
+      if (chunk.done) break;
+    }
+    if (lastError && !result) {
+      throw new Error(lastError);
+    }
+    return result;
+  }
 }
+
